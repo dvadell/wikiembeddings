@@ -1,81 +1,86 @@
-"""
-Wikipedia Semantic Search — Persistent Server
-==============================================
+"""Wikipedia Semantic Search — Persistent Server.
+
 Loads the FAISS index and sentence-transformer model once at startup,
 then serves queries over HTTP. Each search takes ~10ms instead of ~10s.
-
-Install:
-    pip install sentence-transformers numpy faiss-cpu fastapi uvicorn
-
-Run:
-    python wiki_server.py
-
-Then query from another terminal:
-    curl "http://localhost:8000/search?q=How+do+plants+convert+sunlight"
-
-    # pretty JSON
-    curl -s "http://localhost:8000/search?q=photosynthesis" | python -m json.tool
-
-    # change number of results
-    curl "http://localhost:8000/search?q=black+holes&k=10"
 """
 
+import logging
 import os
 import sys
 import time
 from contextlib import asynccontextmanager
+from typing import Any
 
+import faiss
 import numpy as np
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
+from sentence_transformers import SentenceTransformer
 
-# ── Config (must match wiki_search.py) ───────────────────────────────────────
-MODEL_NAME = "all-MiniLM-L6-v2"
-EMBED_DIM = 384
-FAISS_INDEX = "wiki_faiss.index"
-TITLES_FILE = "wiki_titles.txt"
-DEFAULT_K = 5
-DEFAULT_NPROBE = 64
-# ─────────────────────────────────────────────────────────────────────────────
+from app.config import (
+    DEFAULT_K,
+    DEFAULT_NPROBE,
+    FAISS_INDEX,
+    MODEL_NAME,
+    PORT,
+    TITLES_FILE,
+    WORKERS,
+)
+
+logger = logging.getLogger(__name__)
 
 # Global state — loaded once at startup
-state = {}
+state: dict[str, Any] = {}
+
+
+def _validate_path(path: str) -> str:
+    """Return *path* if it exists, else sys.exit with a message."""
+    if not os.path.exists(path):
+        sys.exit(f"'{path}' not found. Run wiki_search.py --build-index first.")
+    return path
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> None:  # noqa: D401
     """Load everything into memory before accepting requests."""
     try:
-        import faiss
-    except ImportError:
-        sys.exit("FAISS not installed. Run: pip install faiss-cpu")
+        _verify_faiss_installed()
+    except SystemExit as exc:
+        logger.error("Startup failed: %s", exc)
+        raise
 
-    from sentence_transformers import SentenceTransformer
+    _validate_path(FAISS_INDEX)
+    _validate_path(TITLES_FILE)
 
-    for path in [FAISS_INDEX, TITLES_FILE]:
-        if not os.path.exists(path):
-            sys.exit(f"'{path}' not found. Run wiki_search.py --build-index first.")
-
-    print("Loading titles …", flush=True)
+    logger.info("Loading titles …")
     t0 = time.time()
     with open(TITLES_FILE, "r", encoding="utf-8") as f:
         state["titles"] = f.read().splitlines()
-    print(f"  {len(state['titles']):,} titles loaded in {time.time() - t0:.1f}s")
+    logger.info("  %s titles loaded in %.1fs", len(state["titles"]), time.time() - t0)
 
-    print("Loading FAISS index …", flush=True)
+    logger.info("Loading FAISS index …")
     t0 = time.time()
     state["index"] = faiss.read_index(FAISS_INDEX)
     state["index"].nprobe = DEFAULT_NPROBE
-    print(f"  Index loaded in {time.time() - t0:.1f}s")
+    logger.info("  Index loaded in %.1fs", time.time() - t0)
 
-    print(f"Loading model '{MODEL_NAME}' …", flush=True)
+    logger.info("Loading model '%s' …", MODEL_NAME)
     t0 = time.time()
     state["model"] = SentenceTransformer(MODEL_NAME)
-    print(f"  Model loaded in {time.time() - t0:.1f}s")
+    logger.info("  Model loaded in %.1fs", time.time() - t0)
 
-    print("\nServer ready. Listening on http://localhost:8000\n")
+    logger.info("\nServer ready. Listening on http://localhost:%d\n", PORT)
     yield
     state.clear()
+    logger.info("State cleared on shutdown.")
+
+
+def _verify_faiss_installed() -> None:
+    """Ensure FAISS is importable; sys.exit with an actionable message otherwise."""
+    try:
+        import faiss as _  # noqa: F401 (top-level import side-effect)
+    except ImportError:
+        sys.exit("FAISS not installed. Run: pip install faiss-cpu")
 
 
 app = FastAPI(
@@ -86,13 +91,13 @@ app = FastAPI(
 
 
 @app.get("/search")
-def search(
+def search(  # noqa: D402
     q: str = Query(..., description="Your question or search phrase"),
     k: int = Query(DEFAULT_K, ge=1, le=100, description="Number of results"),
     nprobe: int = Query(
         DEFAULT_NPROBE, ge=1, le=4096, description="FAISS cells to search (higher = more accurate)"
     ),
-):
+) -> JSONResponse:
     model = state["model"]
     index = state["index"]
     titles = state["titles"]
@@ -121,11 +126,12 @@ def search(
 
 
 @app.get("/health")
-def health():
+def health() -> dict[str, object]:
     return {"status": "ok", "titles_loaded": len(state.get("titles", []))}
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logging.basicConfig(level=logging.INFO)
+    uvicorn.run(app, host="0.0.0.0", port=PORT, workers=WORKERS)

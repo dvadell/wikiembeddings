@@ -1,0 +1,1 @@
+"""Wikipedia Semantic Search Microservice."""
