@@ -2,21 +2,27 @@
 
 import importlib
 import os
-from unittest import mock
 
 
 def test_defaults():
     """All config vars expose PRD §9 defaults."""
     # Ensure no env vars interfere
     env_vars = [
-        "MODEL_NAME", "EMBED_DIM", "FAISS_INDEX", "TITLES_FILE",
-        "DEFAULT_K", "DEFAULT_NPROBE", "PORT", "WORKERS",
+        "MODEL_NAME",
+        "EMBED_DIM",
+        "FAISS_INDEX",
+        "TITLES_FILE",
+        "DEFAULT_K",
+        "DEFAULT_NPROBE",
+        "PORT",
+        "WORKERS",
     ]
     for var in env_vars:
         os.environ.pop(var, None)
 
     # Re-import to pick up un-set environment
     import app.config as cfg
+
     importlib.reload(cfg)
 
     assert cfg.MODEL_NAME == "all-MiniLM-L6-v2"
@@ -33,6 +39,7 @@ def test_env_override_model_name():
     os.environ["MODEL_NAME"] = "bert-base-uncased"
     try:
         import app.config as cfg
+
         importlib.reload(cfg)
         assert cfg.MODEL_NAME == "bert-base-uncased"
     finally:
@@ -45,6 +52,7 @@ def test_env_override_integers():
     os.environ["PORT"] = "9000"
     try:
         import app.config as cfg
+
         importlib.reload(cfg)
         assert cfg.EMBED_DIM == 768
         assert cfg.DEFAULT_K == 10
@@ -59,6 +67,7 @@ def test_env_override_faiss_and_titles():
     os.environ["TITLES_FILE"] = "custom.txt"
     try:
         import app.config as cfg
+
         importlib.reload(cfg)
         assert cfg.FAISS_INDEX == "custom.index"
         assert cfg.TITLES_FILE == "custom.txt"
@@ -72,6 +81,7 @@ def test_env_override_nprobe_and_workers():
     os.environ["WORKERS"] = "4"
     try:
         import app.config as cfg
+
         importlib.reload(cfg)
         assert cfg.DEFAULT_NPROBE == 128
         assert cfg.WORKERS == 4

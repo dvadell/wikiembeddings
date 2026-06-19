@@ -1,6 +1,5 @@
 """Coverage: _verify_faiss_installed error path + lifecycle catching."""
 
-import faiss
 import sys
 
 
@@ -8,7 +7,6 @@ def test_verify_faiss_installed_import_error():
     """When faiss import fails, _verify_faiss_installed raises SystemExit (lines 83-84)."""
     from app.main import _verify_faiss_installed as verify
 
-    old_modules = {k: v for k, v in sys.modules.items() if k == "faiss" or k.startswith("faiss.")}
     for key in list(sys.modules.keys()):
         if key == "faiss" or key.startswith("faiss."):
             del sys.modules[key]
@@ -23,6 +21,7 @@ def test_verify_faiss_installed_import_error():
     sys.meta_path.insert(0, blocker)
     try:
         import pytest
+
         with pytest.raises(SystemExit):
             verify()
     finally:
@@ -36,15 +35,16 @@ def test_lifespan_catches_system_exit(monkeypatch, tmp_data_dir):
     - broken_verify calls logger.error before raising SystemExit
     - If the call reaches lifespan, log_error will be called
     """
+    import unittest.mock
+
     import app.config as cfg
     import app.main as mod
-    import unittest.mock
 
     # Patch config + main paths so lifespan reads temp files
     monkeypatch.setattr(cfg, "FAISS_INDEX", str(tmp_data_dir / "wiki_faiss.index"))
     monkeypatch.setattr(cfg, "TITLES_FILE", str(tmp_data_dir / "wiki_titles.txt"))
-    monkeypatch.setattr(mod, "FAISS_INDEX",  str(tmp_data_dir / "wiki_faiss.index"))
-    monkeypatch.setattr(mod, "TITLES_FILE",   str(tmp_data_dir / "wiki_titles.txt"))
+    monkeypatch.setattr(mod, "FAISS_INDEX", str(tmp_data_dir / "wiki_faiss.index"))
+    monkeypatch.setattr(mod, "TITLES_FILE", str(tmp_data_dir / "wiki_titles.txt"))
 
     # Replace the real function with one that raises SystemExit to exercise lines 49-51
     log_error = unittest.mock.MagicMock()
@@ -57,6 +57,7 @@ def test_lifespan_catches_system_exit(monkeypatch, tmp_data_dir):
     monkeypatch.setattr(mod.logger, "error", log_error)
 
     from fastapi.testclient import TestClient
+
     client = TestClient(mod.app)
     try:
         with client:
@@ -67,4 +68,3 @@ def test_lifespan_catches_system_exit(monkeypatch, tmp_data_dir):
         pass  # portal cleanup may raise CancelledError
 
     assert log_error.called
-

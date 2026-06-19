@@ -23,17 +23,18 @@ Then query from another terminal:
 import os
 import sys
 import time
-import numpy as np
 from contextlib import asynccontextmanager
+
+import numpy as np
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 
 # ── Config (must match wiki_search.py) ───────────────────────────────────────
-MODEL_NAME  = "all-MiniLM-L6-v2"
-EMBED_DIM   = 384
+MODEL_NAME = "all-MiniLM-L6-v2"
+EMBED_DIM = 384
 FAISS_INDEX = "wiki_faiss.index"
 TITLES_FILE = "wiki_titles.txt"
-DEFAULT_K   = 5
+DEFAULT_K = 5
 DEFAULT_NPROBE = 64
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -59,18 +60,18 @@ async def lifespan(app: FastAPI):
     t0 = time.time()
     with open(TITLES_FILE, "r", encoding="utf-8") as f:
         state["titles"] = f.read().splitlines()
-    print(f"  {len(state['titles']):,} titles loaded in {time.time()-t0:.1f}s")
+    print(f"  {len(state['titles']):,} titles loaded in {time.time() - t0:.1f}s")
 
     print("Loading FAISS index …", flush=True)
     t0 = time.time()
     state["index"] = faiss.read_index(FAISS_INDEX)
     state["index"].nprobe = DEFAULT_NPROBE
-    print(f"  Index loaded in {time.time()-t0:.1f}s")
+    print(f"  Index loaded in {time.time() - t0:.1f}s")
 
     print(f"Loading model '{MODEL_NAME}' …", flush=True)
     t0 = time.time()
     state["model"] = SentenceTransformer(MODEL_NAME)
-    print(f"  Model loaded in {time.time()-t0:.1f}s")
+    print(f"  Model loaded in {time.time() - t0:.1f}s")
 
     print("\nServer ready. Listening on http://localhost:8000\n")
     yield
@@ -88,16 +89,17 @@ app = FastAPI(
 def search(
     q: str = Query(..., description="Your question or search phrase"),
     k: int = Query(DEFAULT_K, ge=1, le=100, description="Number of results"),
-    nprobe: int = Query(DEFAULT_NPROBE, ge=1, le=4096,
-                        description="FAISS cells to search (higher = more accurate)"),
+    nprobe: int = Query(
+        DEFAULT_NPROBE, ge=1, le=4096, description="FAISS cells to search (higher = more accurate)"
+    ),
 ):
-    model  = state["model"]
-    index  = state["index"]
+    model = state["model"]
+    index = state["index"]
     titles = state["titles"]
 
     index.nprobe = nprobe
 
-    t0    = time.time()
+    t0 = time.time()
     q_emb = model.encode([q], convert_to_numpy=True).astype("float32")
     q_emb /= np.linalg.norm(q_emb, keepdims=True)
 
@@ -109,11 +111,13 @@ def search(
         for i, (score, idx) in enumerate(zip(scores[0], indices[0]))
     ]
 
-    return JSONResponse({
-        "query":      q,
-        "results":    results,
-        "elapsed_ms": round(elapsed_ms, 1),
-    })
+    return JSONResponse(
+        {
+            "query": q,
+            "results": results,
+            "elapsed_ms": round(elapsed_ms, 1),
+        }
+    )
 
 
 @app.get("/health")
@@ -123,4 +127,5 @@ def health():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

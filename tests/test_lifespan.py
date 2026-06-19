@@ -1,20 +1,22 @@
 """Verify lifespan: state is populated on startup and cleared on shutdown."""
 
-import numpy as np
 from unittest.mock import MagicMock
+
+import numpy as np
 
 from tests.conftest import _patch_temp_paths
 
 
 def test_lifespan_populates_state(monkeypatch, tmp_data_dir):
     """After lifespan runs, state should contain 'titles', 'index', 'model' keys."""
-    from pathlib import Path
     from fastapi.testclient import TestClient
+
     import app.config as cfg
     import app.main as app_module
 
-    orig_cfg_faiss, orig_cfg_titles, orig_main_faiss, orig_main_titles = \
-        _patch_temp_paths(tmp_data_dir, monkeypatch)
+    orig_cfg_faiss, orig_cfg_titles, orig_main_faiss, orig_main_titles = _patch_temp_paths(
+        tmp_data_dir, monkeypatch
+    )
 
     original_state = dict(app_module.state)
     app_module.state.clear()
@@ -24,12 +26,14 @@ def test_lifespan_populates_state(monkeypatch, tmp_data_dir):
     mock_model.encode.return_value = np.zeros((1, 384), dtype="float32")
 
     import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, 'SentenceTransformer', lambda *a, **k: mock_model)
+
+    monkeypatch.setattr(sentence_transformers, "SentenceTransformer", lambda *a, **k: mock_model)
 
     # Also replace faiss.read_index so it returns our real temp index (already IVF-compatible)
     # The key issue is: the temp file has IndexFlat2 which doesn't support .nprobe.
     # We need lifespan to load a wrapper that supports .nprobe. So we mock faiss.read_index too.
     import faiss
+
     dummy = np.zeros((1, 384), dtype="float32")
     flat_idx = faiss.IndexFlatL2(384)
     flat_idx.add(dummy)
@@ -37,17 +41,22 @@ def test_lifespan_populates_state(monkeypatch, tmp_data_dir):
     class _NprobeIndex:
         def __init__(self):
             self._n = 64
+
         @property
-        def nprobe(self): return self._n
+        def nprobe(self):
+            return self._n
+
         @nprobe.setter
-        def nprobe(self, value): self._n = int(value)
+        def nprobe(self, value):
+            self._n = int(value)
+
         def search(self, x, k):
             scores = np.zeros((1, 50), dtype="float32")
-            ids   = np.tile(np.arange(50), (1, 50))
+            ids = np.tile(np.arange(50), (1, 50))
             return scores.astype("float32"), ids.astype("int32")
 
     real_read = faiss.read_index
-    monkeypatch.setattr(faiss, 'read_index', lambda *a, **k: _NprobeIndex())
+    monkeypatch.setattr(faiss, "read_index", lambda *a, **k: _NprobeIndex())
 
     client = TestClient(app_module.app)
     with client:
@@ -64,10 +73,10 @@ def test_lifespan_populates_state(monkeypatch, tmp_data_dir):
 
     # Restore config
     cfg.FAISS_INDEX = orig_cfg_faiss
-    cfg.TITLES_FILE   = orig_cfg_titles
+    cfg.TITLES_FILE = orig_cfg_titles
     try:
         app_module.FAISS_INDEX = orig_main_faiss
-        app_module.TITLES_FILE   = orig_main_titles
+        app_module.TITLES_FILE = orig_main_titles
     except AttributeError:
         pass
 
@@ -76,11 +85,12 @@ def test_lifespan_populates_state(monkeypatch, tmp_data_dir):
 
 def test_state_cleared_on_shutdown(monkeypatch, tmp_data_dir):
     """State dict is {} (empty) after lifespan context manager exits."""
-    import app.config as cfg
-    import app.main as app_module
     from unittest.mock import MagicMock
-    from fastapi.testclient import TestClient
+
     import numpy as np
+    from fastapi.testclient import TestClient
+
+    import app.main as app_module
 
     _patch_temp_paths(tmp_data_dir, monkeypatch)
 
@@ -88,17 +98,26 @@ def test_state_cleared_on_shutdown(monkeypatch, tmp_data_dir):
     mock_model.encode.return_value = np.zeros((1, 384), dtype="float32")
 
     class _NprobeIndex:
-        def __init__(self): self._n = 64
+        def __init__(self):
+            self._n = 64
+
         @property
-        def nprobe(self): return self._n
+        def nprobe(self):
+            return self._n
+
         @nprobe.setter
-        def nprobe(self, v): self._n = int(v)
-        def search(self, x, k): return np.zeros((1,k)), np.zeros((k,), dtype="int32")
+        def nprobe(self, v):
+            self._n = int(v)
+
+        def search(self, x, k):
+            return np.zeros((1, k)), np.zeros((k,), dtype="int32")
 
     import faiss
-    monkeypatch.setattr(faiss, 'read_index', lambda *a: _NprobeIndex())
+
+    monkeypatch.setattr(faiss, "read_index", lambda *a: _NprobeIndex())
     import sentence_transformers
-    monkeypatch.setattr(sentence_transformers, 'SentenceTransformer', lambda *a: mock_model)
+
+    monkeypatch.setattr(sentence_transformers, "SentenceTransformer", lambda *a: mock_model)
 
     original = dict(app_module.state)
     app_module.state.clear()

@@ -1,9 +1,6 @@
 """Unit tests for search logic — embedding, FAISS round-trip, result schema."""
 
-from unittest import mock
-
 import numpy as np
-from fastapi.responses import JSONResponse
 
 
 def test_search_returns_json(client):
@@ -78,8 +75,9 @@ def test_search_encode_returns_float32(client):
 
 def test_search_q_emb_normally(client):
     """Query embedding is L2-normalised before indexing."""
-    from app import main as app_module
     import numpy as np
+
+    from app import main as app_module
 
     # Use a non-zero vector so norm is meaningful
     fake_emb = np.ones((1, 384), dtype="float32")
