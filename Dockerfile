@@ -8,16 +8,17 @@ RUN pip install --no-cache-dir uv && \
     uv sync --frozen
 
 # ── runtime stage -----------------------------------------------------------
-FROM python:3.12-alpine AS runtime
+# Debian slim (not Alpine) — torch publishes manylinux wheels which need
+# glibc; musl has zero wheel support.  This keeps the image lean enough for
+# a microservice while remaining compatible with Apple Silicon Docker.
+FROM python:3.12-slim AS runtime
 
-RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S app && adduser -S app -G app && \
+    apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /app && chown -R app:app /app
 
-WORKDIR /app
-
-# Only curl needed at runtime (HEALTHCHECK).  numpy/faiss-cpu ship
-# manylinux wheels that bundle BLAS; ONNX has musl-compatible wheels.
-# openblas-libs and libstdc++ are Debian names — Alpine rejects them.
-RUN apk add --no-cache curl
+ENV HOME=/app
 
 COPY pyproject.toml uv.lock ./
 
