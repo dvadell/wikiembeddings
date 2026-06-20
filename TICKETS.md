@@ -30,6 +30,7 @@ Tests are required and must pass on every push to `main`. Target: **>95 % line c
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t0_testing_infrastructure`) and work on it until completion | Per-ticket prerequisite |
 | 0.1 | Add `pytest`, `pytest-asyncio`, `httpx`, `coverage[toml]` to dev deps | FastAPI test client (`httpx.AsyncClient`) is the core tooling |
 | 0.2 | Create `tests/` directory with `__init__.py`, `conftest.py`, and initial structure | See T0 section below for layout |
 | 0.3 | Configure `coverage` via `pyproject.toml` (or `tox.ini`) — set `min_line = 95` in `[tool.coverage.run]` and enable `branch = true` so CI gates on the 95 % threshold | Any PR that drops coverage below 95 % will fail CI |
@@ -63,6 +64,7 @@ git branch: `ai-agent/t1_project_restructuring_code_quality`
 
 | # | Task | Notes | PRD ref |
 |---|------|-------|---------||
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t1_project_restructuring_code_quality`) and work on it until completion | Per-ticket prerequisite |
 | 1.1 | Create `app/` package (`__init__.py`) | Move all source into this directory |
 | 1.2 | Extract config into `app/config.py` | Every PRD §9 env-var (`MODEL_NAME`, `EMBED_DIM`, `FAISS_INDEX`, `TITLES_FILE`, `DEFAULT_K`, `DEFAULT_NPROBE`, `PORT`, `WORKERS`) becomes an `os.environ.get(...)` with documented defaults |
 | 1.3 | Replace all `print(...)` calls with Python `logging` | Use `logging.getLogger(__name__)`; configure via config layer so both dev and prod log levels change without code edits |
@@ -90,6 +92,7 @@ PRD §8.1 target.
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t2_dockerfile_multi_stage_hardened`) and work on it until completion | Per-ticket prerequisite |
 | 2.1 | Write `Dockerfile` with **two stages**: builder (`python:3.12-slim`, installs deps) → runtime (`python:3.12-alpine`, non-root user, copies only build artifacts) | Reduces final image size; multi-stage enforces this |
 | 2.2 | Add a Docker `HEALTHCHECK` polling the `/health` endpoint every 30 s | Mirrors PRD SC2 requirement |
 | 2.3 | Run container as non-root (`RUN addgroup -S app && adduser -S app -G app`) | PRD §10 — no root in the image |
@@ -114,6 +117,7 @@ PRD §8.0 target.
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t3_docker_compose_yaml_local_dev`) and work on it until completion | Per-ticket prerequisite |
 | 3.1 | Create `docker-compose.yaml` with service `wiki-search`; build context: `.`; port map `8000:8000` | PRD SC2 |
 | 3.2 | Mount volumes for data files (`./wiki_faiss.index:/app/wiki_faiss.index`, `./wiki_titles.txt:/app/wiki_titles.txt`) | Allows dev to swap dumps without rebuilding image |
 | 3.3 | Set environment variables (model name, index path, port) with file overrides via env-file mechanism — or at least document how to override them | PRD §9 |
@@ -136,6 +140,7 @@ PRD §8.3 target. **Tests run on every `main` push.**
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t4_ci_build_test_workflow`) and work on it until completion | Per-ticket prerequisite |
 | 4.1 | Create `.github/workflows/ci.yaml`**:** triggers: `push`, `pull_request` to `main`; jobs **(a) unit tests + coverage, (b) Docker build (no push)** | Run the full pytest suite with coverage; gate PR merge on passing CI. The final image is pushed only on tags (see T5) |
 | 4.2 | Add a job matrix: Python 3.12 (`ubuntu-latest`) — run `pytest --cov=app --cov-fail-under=95 tests/` | **>95 % line coverage** is the PRD requirement; CI fails if below |
 | 4.3 | Add linting step (`ruff check app/ tests/`) as another gate in the same workflow file | One-command quality signal; also part of T1 hygiene |
@@ -162,6 +167,7 @@ git branch: `ai-agent/t5a_unit_tests_config`
 
 | # | Task | Target area | PRD coverage |
 |---|------|-------------|--------------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t5a_unit_tests_config`) and work on it until completion | Per-ticket prerequisite |
 | 5a.1 | `test_config_defaults()` — import `app.config`, assert every PRD §9 var returns its documented default (no env vars set). | Unit: load config → assert defaults | T1/PRD §9 |
 | 5a.2 | `test_config_env_override()` — for each env var (`MODEL_NAME`, `EMBED_DIM`, `FAISS_INDEX`, `TITLES_FILE`, `DEFAULT_K`, `DEFAULT_NPROBE`, `PORT`), set the env var to a distinct sentinel value, re-create config, assert the new value. | Unit: env-override paths | T1/PRD §9 |
 | 5a.3 | Test any custom parsing logic in `app/config.py` (e.g., int coercion for `EMBED_DIM`, `DEFAULT_K`). | Unit: type conversion | PRD §9 |
@@ -178,6 +184,7 @@ git branch: `ai-agent/t5b_unit_tests_model`
 
 | # | Task | Target area | PRD coverage |
 |---|------|-------------|--------------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t5b_unit_tests_model`) and work on it until completion | Per-ticket prerequisite |
 | 5b.1 | Mock `SentenceTransformer.encode`. Pass a non-empty string (e.g., "test"), assert returned array shape = `(1, 384)`. | Unit: input shape / dim | PRD §7.1 |
 | 5b.2 | Assert output dtype is `float32` (numpy). | Unit: float conversion | PRD §7.1 |
 | 5b.3 | Verify L2 normalisation (`q_emb /= np.linalg.norm(q_emb)`) — assert `np.allclose(np.linalg.norm(result), 1.0)` within tol=1e-6. | Unit: L2 norm | PRD §7.1 |
@@ -196,6 +203,7 @@ git branch: `ai-agent/t5c_unit_tests_faiss`
 
 | # | Task | Target area | PRD coverage |
 |---|------|-------------|--------------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t5c_unit_tests_faiss`) and work on it until completion | Per-ticket prerequisite |
 | 5c.1 | Mock a FAISS IVF index with known vectors + associated title indices; assert searching the same query returns those exact titles (exact round-trip). | Unit: mock FAISS search | PRD §6 API |
 | 5c.2 | Verify response schema `{rank: int, title: str, score: float}` has no missing or extra keys in every result entry. | Unit: schema validation | PRD §6 API |
 | 5c.3 | Assert that *k* results yields exactly *k* entries for various values (k=1..100). | Unit: top-k count | PRD §6 API |
@@ -213,6 +221,7 @@ git branch: `ai-agent/t5d_unit_tests_integration_lite`
 
 | # | Task | Target area | PRD coverage |
 |---|------|-------------|--------------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t5d_unit_tests_integration_lite`) and work on it until completion | Per-ticket prerequisite |
 | 5d.1 | Spin up real FastAPI app via `httpx.AsyncClient`; hit `/health`; assert `{status: "ok", titles_loaded: N}` where *N* ≥ 0 (int). | Integration-lite: /health schema | PRD §SC2 |
 | 5d.2 | Verify lifespan populates app state (`state.titles`, `state.index` etc.) on startup with mocked data if temp files are provided, or empty dicts otherwise. | Integration-lite: state population | PRD §7.2 |
 | 5d.3 | Assert that after client's async context exits (shutdown), the state dict keys/values corresponding to loaded resources are cleared (`{}`). | Integration-lite: state teardown | PRD §7.2 constraint |
@@ -230,6 +239,7 @@ git branch: `ai-agent/t5e_unit_tests_validation`
 
 | # | Task | Target area | PRD coverage |
 |---|------|-------------|--------------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t5e_unit_tests_validation`) and work on it until completion | Per-ticket prerequisite |
 | 5e.1 | `/search?q=` (empty query) → assert **HTTP 422**. | Integration-lite: empty q | PRD §6 + T1/PRD §10 |
 | 5e.2 | `?k=0` → assert **HTTP 422**. | Integration-lite: lower k bound | PRD §6 |
 | 5e.3 | `?k=101` (above max) → assert **HTTP 422**. | Integration-lite: upper k bound | PRD §6 |
@@ -252,6 +262,7 @@ PRD SC3 target (~10 ms latency check). Run **only in CI on push to `main`** (gat
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t6_integration_tests_e2e_docker`) and work on it until completion | Per-ticket prerequisite |
 | 6.1 | Add `tests/integration/` directory with `docker-compose.yaml`-aware e2e suite | Uses real FAISS index + titles files mounted as volumes |
 | 6.2 | `search_e2e.py`: boot container via Testcontainers (or just call the compose service HTTP), send ~5 queries, assert response schema & latency < 20 ms p95 over 10 iterations per query | PRD SC3: "≤ 20 ms p95" |
 | 6.3 | `search_quality.py`: sanity-check that semantically related queries actually return correct titles (e.g. query "photosynthesis" → first hit is "Photosynthesis") | Coverage must pass on the test module itself; these are smoke tests for correctness, not coverage-bound |
@@ -275,6 +286,7 @@ PRD §8.3 (deploy) target. Different workflow from the CI one above — this is 
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t7_github_action_build_push_image_to_ghcr`) and work on it until completion | Per-ticket prerequisite |
 | 7.1 | Create `.github/workflows/release.yaml` triggers: `release: types [published]`; jobs **(a) test (reuse T4 CI job), (b) build-push** | Prevents accidental publishes from draft releases; reuse coverage gate before push |
 | 7.2 | Job **(b)**: run `docker/build-push-action`, tag as `ghcr.io/${{ github.repository_owner }}/wiki-search:${{ github.ref_name }}` and latest on major tags only | PRD SC4 — publish on version tag (e.g., `v1.0.0`) |
 | 7.3 | Add a GitHub Environment (`production`) with branch protection + required reviews before release merges land on `main` | Prevents accidental releases |
@@ -297,10 +309,13 @@ PRD §8.2 target. Fixed 1–2 replicas, no HPA, stateless pod spec.
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t8_kubernetes_manifests_production`) and work on it until completion | Per-ticket prerequisite |
 | 8.1 | Create `k8s/deployment.yaml` with single-Replica Deployment; read the image from GHCR via PRD SC5 target | kubectl get pods/status log = proof of success (PRD §SC5) |
 | 8.2 | Add liveness probe on `/health` and a readiness probe — same port (8000), path (`/health`) | PRD §8.2 – "passes probes with no restarts" |
 | 8.3 | Pod resource limits: `requests: 256Mi CPU/100m; limits: 1Gi/500m` (as per PRD) | Fixed scale target = simple spec file, no HPA controller needed |
-| 8.4 | Add config map for env vars from PRD §9 | One `ConfigMap`, one `Secret` if any sensitive data ever goes in here; keep it simple now |
+| 8.4 | Add a ConfigMap for env vars from PRD §9 (text values only; `kubectl create configmap --from-env-file`) | One `ConfigMap`, one `Secret` if any sensitive data later needs to be added
+| 8.5 | Create `k8s/pvc.yaml` — PersistentVolumeClaim sized to the FAISS index + titles (~tens of GiB). Mount it in the Deployment so the pod sees `/app/wiki_faiss.index` and `/app/wiki_titles.txt`. Docker Compose achieves this with `./file:/path` bind mounts; Kubernetes has no equivalent, so provision a cluster-level PersistentVolume (S3-backed, EFS/GCS/Fast-SSD, or NFS) and reference it via the PVC. Data files must be copied onto the PVC before pods start — run once: `kubectl exec -i pvc-wiki-data -- tar xf wiki_data.tar.gz`
+| 8.6 | Mount the PVC volumes in the Deployment pod spec so the app process sees the index/titles paths matching PRD §9 defaults |
 
 ### Acceptance criteria — T8
 
@@ -311,6 +326,7 @@ PRD §8.2 target. Fixed 1–2 replicas, no HPA, stateless pod spec.
 | 8.C | Both `/health` liveness and readiness probes are configured (HTTP GET port 8000, path `/`). | `yq '.spec.template.spec.containers[0].livenessProbe'` and `.readinessProbe` both non-null. |
 | 8.D | Resource limits match PRD §8.2: requests `256Mi CPU / 100m`; limits `1Gi / 500m`. (Note: the original PRD lists requests and limits in reversed order — adopt the convention below.) | `yq '.spec.template.spec.containers[0].resources'` matches `requests.cpu: "100m", requests.memory: 256Mi, limits.cpu: "500m", limits.memory: 1Gi`. |
 | 8.E | A `ConfigMap` manifest (or embedded `envFrom`) contains the PRD §9 env vars. | `yq '.data' k8s/<configmap-file>.yaml` includes all 8 variables. |
+| 8.F | `k8s/pvc.yaml` exists; `spec.accessModes` includes `ReadWriteMany`; `spec.resources.requests.storage` is ≥ the combined size of FAISS index + titles (recommend 50 GiB to start). A corresponding PersistentVolume exists in-cluster. | `yq '.spec.accessModes' k8s/pvc.yaml` contains `ReadWriteMany`; a matching `PersistentVolume` is created with the same `size`. |
 
 ---
 
@@ -321,6 +337,7 @@ PRD documentation target (no separate ticket needed — write alongside the othe
 
 | # | Content elements |
 |---|---|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t9_readme_md_professional_concise`) and work on it until completion | Per-ticket prerequisite |
 | 9.1 | Project header with badges: `![CI](https://github.com/{owner}/{repo}/actions/workflows/ci.yaml/badge.svg)`, `![Docker Build](release.yaml)`, `![coverage](coverage-badge)` |
 | 9.2 | One-line description, overview, quickstart (clone → docker-compose up → curl), API reference, config vars table, Kubernetes deploy section, links to PRD/TICKETS |
 | 9.3 | Add license (`LICENSE`) and a small CONTRIBUTING guide (PR template, testing expectations — >95 % coverage gate) |
@@ -341,6 +358,7 @@ git branch: `ai-agent/t10_polish_final_verification_against_prd`
 
 | # | Task | Notes |
 |---|------|-------|
+| 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t10_polish_final_verification_against_prd`) and work on it until completion | Per-ticket prerequisite |
 | 10.1 | Confirm every PRD goal: G1 ≤20 ms p95, G2 Docker + K8s, G3 GHCR publish, G4 one-line dev start | Ticks all four Goals in one final pass |
 | 10.2 | Confirm every PRD success criterion (SC1–SC5) is measurable via the artifacts above | Cross-check each against its ticket |
 | 10.3 | Open a single release PR with all of the above; ensure CI + tag-release workflow both succeed end-to-end before merging | The final gate — if this passes, the project is ship-ready |
