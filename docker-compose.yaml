@@ -1,0 +1,28 @@
+# Local development with docker-compose — PRD §8.1
+# Start:  docker compose up
+# Health: curl http://localhost:8000/health
+# Search: curl "http://localhost:8000/search?q=photosynthesis&k=5"
+
+services:
+  wiki-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/dvadell/wiki-search:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # ── PRD §9 env vars (all have sensible defaults; override via .env) ──
+      MODEL_NAME: ${MODEL_NAME:-all-MiniLM-L6-v2}
+      EMBED_DIM: ${EMBED_DIM:-384}
+      FAISS_INDEX: ${FAISS_INDEX:-wiki_faiss.index}
+      TITLES_FILE: ${TITLES_FILE:-wiki_titles.txt}
+      DEFAULT_K: ${DEFAULT_K:-5}
+      DEFAULT_NPROBE: ${DEFAULT_NPROBE:-64}
+      PORT: ${PORT:-8000}
+      WORKERS: ${WORKERS:-1}
+    volumes:
+      # Mount data files so dev can swap dumps without rebuilding the image.
+      - ./wiki_faiss.index:/app/wiki_faiss.index
+      - ./wiki_titles.txt:/app/wiki_titles.txt
+    restart: unless-stopped
