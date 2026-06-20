@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 RUN pip install --no-cache-dir uv && \
-    uv sync --frozen
+    uv sync -v --frozen
 
 # ── runtime stage -----------------------------------------------------------
 # Debian slim (not Alpine) — torch publishes manylinux wheels which need
@@ -13,7 +13,9 @@ RUN pip install --no-cache-dir uv && \
 # a microservice while remaining compatible with Apple Silicon Docker.
 FROM python:3.12-slim AS runtime
 
-RUN addgroup -S app && adduser -S app -G app && \
+# groupadd/useradd are POSIX-standard — work identically across all Linux distros,
+# avoiding adduser/addgroup differences between Alpine busybox and Debian.
+RUN groupadd -r app && useradd -m -g app app && \
     apt-get update && apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /app && chown -R app:app /app
@@ -23,7 +25,7 @@ ENV HOME=/app
 COPY pyproject.toml uv.lock ./
 
 RUN pip install --no-cache-dir uv && \
-    uv sync --frozen
+    uv sync -v --no-install-package nvidia-cublas --no-install-package nvidia-cudnn-cu13  --frozen
 
 # Stub data files (mounted via volumes in docker-compose; stubs keep the image
 # self-contained for non-volume deployments).
