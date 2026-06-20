@@ -25,6 +25,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Node
+node_modules/
+
 # Test artifacts
 .pytest_cache/
 .mypy_cache/
