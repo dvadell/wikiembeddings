@@ -10,20 +10,15 @@ RUN pip install --no-cache-dir uv && \
 # ── runtime stage -----------------------------------------------------------
 FROM python:3.12-alpine AS runtime
 
-# non-root user & group (PRD §10 — no root in the container)
 RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app
 
-# Alpine needs openblas at runtime for faiss-cpu; libstdc++ for ONNX Runtime.
-RUN apk add --no-cache \
-    openblas-libs \
-    libstdc++ \
-    curl
+# Only curl needed at runtime (HEALTHCHECK).  numpy/faiss-cpu ship
+# manylinux wheels that bundle BLAS; ONNX has musl-compatible wheels.
+# openblas-libs and libstdc++ are Debian names — Alpine rejects them.
+RUN apk add --no-cache curl
 
-# Pre-built wheels from builder can't be used across libc (glibc → musl),
-# so we install fresh using python's pip.  manylinux2014+x86_64 wheels for
-# numpy and faiss-cpu are available on PyPI and work with Alpine's musl.
 COPY pyproject.toml uv.lock ./
 
 RUN pip install --no-cache-dir uv && \
