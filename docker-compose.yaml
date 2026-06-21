@@ -10,6 +10,6 @@ services:
       dockerfile: Dockerfile
     image: ghcr.io/dvadell/wiki-search:latest
     env_file:
-      - .env.example
+      - .env
     ports:
       - "8001:8000"
