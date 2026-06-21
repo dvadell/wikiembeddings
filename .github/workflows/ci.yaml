@@ -27,7 +27,14 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: |
+          rm -rf .venv
+          uv venv
+          uv pip install -e ".[dev]"
+        shell: bash
+
+      - name: Verify pytest-cov is installed
+        run: uv pip show pytest-cov && uv run pytest --help | grep -q "\-\-cov"
 
       - name: Run tests with coverage
         run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=95 tests/
@@ -46,7 +53,11 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: |
+          rm -rf .venv
+          uv venv
+          uv pip install -e ".[dev]"
+        shell: bash
 
       - name: Run ruff linter
         run: uv run ruff check app/ tests/
