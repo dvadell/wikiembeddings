@@ -1,0 +1,15 @@
+# Local development with docker-compose — PRD §8.1
+# Start:  docker compose up
+# Health: curl http://localhost:8000/health
+# Search: curl "http://localhost:8000/search?q=photosynthesis&k=5"
+
+services:
+  wiki-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/dvadell/wiki-search:latest
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"

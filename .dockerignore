@@ -1,0 +1,27 @@
+# Build context — keeps Docker send-down small for fast rebuilds.
+# The Dockerfile itself installs deps in-stead of relying on local venv.
+
+# Python env (4GB+ — T2's Dockerfile uses uv sync inside the container)
+.venv/
+__pycache__/
+*.egg-info/
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
+# Version control — no need in image or context
+.git/
+.gitignore
+
+# Docs / scratch
+PRD.md
+TICKETS.md
+*~
+.DS_Store
+*.swp
+*.swo
+
+# OS temp files
+.AppleDouble
+.LSOverride
+__MACOSX/

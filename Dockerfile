@@ -1,52 +1,61 @@
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim
 
+# -----------------------------
+# System setup (minimal)
+# -----------------------------
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# -----------------------------
+# Install uv
+# -----------------------------
+RUN pip install --no-cache-dir uv
+
+# -----------------------------
+# Dependency layer (cached)
+# -----------------------------
 COPY pyproject.toml uv.lock ./
 
-RUN pip install --no-cache-dir uv && \
-    uv sync --frozen
+# Force venv inside project
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# ── runtime stage -----------------------------------------------------------
-FROM python:3.12-alpine AS runtime
+RUN uv sync --frozen --no-install-project
 
-# non-root user & group (PRD §10 — no root in the container)
-RUN addgroup -S app && adduser -S app -G app
-
-WORKDIR /app
-
-# Alpine needs openblas at runtime for faiss-cpu; libstdc++ for ONNX Runtime.
-RUN apk add --no-cache \
-    openblas-libs \
-    libstdc++ \
-    curl
-
-# Pre-built wheels from builder can't be used across libc (glibc → musl),
-# so we install fresh using python's pip.  manylinux2014+x86_64 wheels for
-# numpy and faiss-cpu are available on PyPI and work with Alpine's musl.
-COPY pyproject.toml uv.lock ./
-
-RUN pip install --no-cache-dir uv && \
-    uv sync --frozen
-
-# Stub data files (mounted via volumes in docker-compose; stubs keep the image
-# self-contained for non-volume deployments).
-COPY wiki_faiss.index.stub /app/wiki_faiss.index
-COPY wiki_titles.txt.stub  /app/wiki_titles.txt
-
-# Application source — changes more often than data files; layer-cache friendly.
+# -----------------------------
+# Application layer
+# -----------------------------
 COPY app/ ./app/
-RUN chown -R app:app /app
+COPY wiki_faiss.index.stub /app/wiki_faiss.index
+COPY wiki_titles.txt.stub /app/wiki_titles.txt
+
+# -----------------------------
+# Runtime user (security)
+# -----------------------------
+RUN useradd -m app && chown -R app:app /app
 
 USER app
 
-# Health check (PRD §8.1 / SC2) — poll every 30 s.
+# -----------------------------
+# Environment
+# -----------------------------
+ENV PATH="/app/.venv/bin:$PATH" \
+    MODEL_NAME="all-MiniLM-L6-v2" \
+    PORT=8000 \
+    WORKERS=1 \
+    PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+# -----------------------------
+# Healthcheck
+# -----------------------------
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -sf http://localhost:8000/health || exit 1
 
-# Runtime defaults (override via docker-compose / --env-file).
-ENV MODEL_NAME="all-MiniLM-L6-v2" \
-    PORT=8000 \
-    WORKERS=1
-
+# -----------------------------
+# Runtime
+# -----------------------------
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0"]
