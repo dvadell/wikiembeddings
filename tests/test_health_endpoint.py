@@ -3,11 +3,6 @@
 from app.main import state
 
 
-def test_health_returns_ok_when_empty(client):
-    # If titles are not loaded, health should still return with titles_loaded = 0
-    pass  # Handled by default client fixture which pre-populates state.
-
-
 def test_health_schema_with_titles(client):
     response = client.get("/health")
     assert response.status_code == 200
