@@ -12,19 +12,4 @@ services:
     env_file:
       - .env.example
     ports:
-      - "8000:8000"
-    environment:
-      # overridden by dotenv (above); left as fallback values
-      MODEL_NAME: ${MODEL_NAME}
-      EMBED_DIM: ${EMBED_DIM}
-      FAISS_INDEX: ${FAISS_INDEX}
-      TITLES_FILE: ${TITLES_FILE}
-      DEFAULT_K: ${DEFAULT_K}
-      DEFAULT_NPROBE: ${DEFAULT_NPROBE}
-      PORT: ${PORT}
-      WORKERS: ${WORKERS}
-    volumes:
-      # Mount data files so dev can swap dumps without rebuilding the image.
-      - ./wiki_faiss.index:/app/wiki_faiss.index
-      - ./wiki_titles.txt:/app/wiki_titles.txt
-    restart: unless-stopped
+      - "8001:8000"
