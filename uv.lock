@@ -1154,6 +1154,15 @@ dev = [
     { name = "ruff" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "coverage" },
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "coverage", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=7.4.0" },
@@ -1167,4 +1176,13 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=3.0.0" },
     { name = "torch", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", specifier = ">=0.29.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "coverage", extras = ["toml"], specifier = ">=7.4.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23.0" },
+    { name = "ruff", specifier = ">=0.3.0" },
 ]
