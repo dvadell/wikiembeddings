@@ -1,0 +1,75 @@
+# ── Build & push to GHCR on every main push (post-test gate) ────
+# After tests + lint pass, always publish a fresh image so CI and
+# production are in lockstep — no release-publish / environment step.
+
+name: release
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.12"
+  REGISTRY: ghcr.io
+  IMAGE: wiki-search
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # Test gate — T4 requirements (coverage ≥95%) on every push
+  # ────────────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: |
+          rm -rf .venv
+          uv venv
+          uv pip install -e ".[dev]"
+        shell: bash
+
+      - name: Run tests with coverage (≥ 95 %)
+        run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=95 tests/
+
+      - name: Run ruff linter
+        run: uv run ruff check app/ tests/
+
+  # ────────────────────────────────────────────────────────────────
+  # Build & push — gated by the test job, no environment protection.
+  # Every main push gets tagged as ghcr.io/{owner}/wiki-search:main.
+  # ────────────────────────────────────────────────────────────────
+  build-push:
+    needs: [test]          # only runs after tests pass
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── log in to GHCR ────────────────────────────────────────────
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── always tag the image as :main ─────────────────────────────
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE }}:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
