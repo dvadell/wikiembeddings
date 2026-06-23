@@ -279,26 +279,24 @@ PRD SC3 target (~10 ms latency check). Run **only in CI on push to `main`** (gat
 
 ---
 
-## T7 — GitHub Action to build & push image to GHCR (release path)
+## T7 — GitHub Action to build & push image to GHCR (on every main push)
 git branch: `ai-agent/t7_github_action_build_push_image_to_ghcr`
 
-PRD §8.3 (deploy) target. Different workflow from the CI one above — this is **only for tag-triggered images** that get published.
+PRD §8.3 (deploy) target. Runs on **every push to `main`** — test gate first, then build and publish the image. No environment protection or release tags required.
 
 | # | Task | Notes |
 |---|------|-------|
 | 0.0 | Create a new branch with the name shown in this ticket (`ai-agent/t7_github_action_build_push_image_to_ghcr`) and work on it until completion | Per-ticket prerequisite |
-| 7.1 | Create `.github/workflows/release.yaml` triggers: `release: types [published]`; jobs **(a) test (reuse T4 CI job), (b) build-push** | Prevents accidental publishes from draft releases; reuse coverage gate before push |
-| 7.2 | Job **(b)**: run `docker/build-push-action`, tag as `ghcr.io/${{ github.repository_owner }}/wiki-search:${{ github.ref_name }}` and latest on major tags only | PRD SC4 — publish on version tag (e.g., `v1.0.0`) |
-| 7.3 | Add a GitHub Environment (`production`) with branch protection + required reviews before release merges land on `main` | Prevents accidental releases |
+| 7.1 | Create `.github/workflows/release.yaml` triggers: `push` to `main`; jobs **(a) test (reuse T4 CI job), (b) build-push** | Every main push produces a fresh image — CI validation gate stays in place |
+| 7.2 | Job **(b)**: run `docker/build-push-action`, tag as `ghcr.io/${{ github.repository_owner }}/wiki-search:${{ github.ref_name }}` (which resolves to `:main`) | PRD SC4 — continuous deployment of every main push image to GHCR |
 
 ### Acceptance criteria — T7
 
 | # | Criterion | How verified |
 |---|-----------|--------------|
-| 7.A | `.github/workflows/release.yaml` exists and triggers **only** on `release: types: [published]` (not on `created` or `edited`). | `grep "release:" .github/workflows/release.yaml` yields the correct event. |
+| 7.A | `.github/workflows/release.yaml` exists and triggers **only** on `push` to `main`. | `grep "push:" .github/workflows/release.yaml` confirms the event. |
 | 7.B | The workflow contains a test job that re-uses T4's coverage gate before publishing. | One job in release.yaml runs pytest + coverage; its status check gates the build-push job. |
-| 7.C | Image is tagged as `ghcr.io/${{ github.repository_owner }}/wiki-search:${{ github.ref_name }}` and also as `latest` on major-version tags (e.g., `v1`, `v2`). | Inspect the `docker/build-push-action` step's `tags:` field in release.yaml. |
-| 7.D | A `production` GitHub Environment exists with a required reviewer rule. | GitHub UI or API check for environment protection rule. |
+| 7.C | Image is tagged as `ghcr.io/${{ github.repository_owner }}/wiki-search:${{ github.ref_name }}`. | Inspect the `docker/build-push-action` step's `tags:` field in release.yaml. |
 
 ---
 

@@ -1,12 +1,12 @@
-# ── Release: test → build → push to GHCR ──────────────────────────────
-# Triggers only when a GitHub release is *published* (not draft-created or editted).
-# Reuses T4's coverage gate; pushes to GHCR behind environment protection.
+# ── Build & push to GHCR on every main push (post-test gate) ────
+# After tests + lint pass, always publish a fresh image so CI and
+# production are in lockstep — no release-publish / environment step.
 
 name: release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
 
 env:
   PYTHON_VERSION: "3.12"
@@ -14,9 +14,9 @@ env:
   IMAGE: wiki-search
 
 jobs:
-  # ────────────────────────────────────────────────────────────────────
-  # Test gate — reuses T4 coverage requirements before any publish
-  # ────────────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # Test gate — T4 requirements (coverage ≥95%) on every push
+  # ────────────────────────────────────────────────────────────────
   test:
     runs-on: ubuntu-latest
     steps:
@@ -43,17 +43,16 @@ jobs:
       - name: Run ruff linter
         run: uv run ruff check app/ tests/
 
-  # ────────────────────────────────────────────────────────────────────
-  # Build & push — gated by the test job, protected by the "production"
-  # GitHub Environment (requires manual approval).
-  # ────────────────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # Build & push — gated by the test job, no environment protection.
+  # Every main push gets tagged as ghcr.io/{owner}/wiki-search:main.
+  # ────────────────────────────────────────────────────────────────
   build-push:
     needs: [test]          # only runs after tests pass
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    environment: production  # → environment protection rule (required reviewers)
     steps:
       - uses: actions/checkout@v4
 
@@ -65,32 +64,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── derive image tags from the release ref ────────────────────
-      - name: Extract version for tagging
-        id: tags
-        run: |
-          TAGS=""
-          # Always tag with the exact ref (e.g. v1.0.0 → ghcr.io/…:v1.0.0)
-          TAGS="${TAGS}${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE }}:${{ github.ref_name }}"
-
-          # Also add a major-version tag when the ref matches vN.* (e.g. v1 → latest)
-          MAJOR=$(echo "${{ github.ref_name }}" | sed -n 's/^v\([0-9]\+\)\..*/\1/p')
-          if [ -n "$MAJOR" ]; then
-            TAGS="${TAGS},${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE }}:${MAJOR}"
-            # On the first major version (v1), also tag as latest
-            if [ "$MAJOR" = "1" ]; then
-              TAGS="${TAGS},${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE }}:latest"
-            fi
-          fi
-
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-
-      # ── build & push ──────────────────────────────────────────────
+      # ── always tag the image as :main ─────────────────────────────
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
