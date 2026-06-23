@@ -1,7 +1,20 @@
 # Local development with docker-compose — PRD §8.1
-# Start:  docker compose up
-# Health: curl http://localhost:8000/health
-# Search: curl "http://localhost:8000/search?q=photosynthesis&k=5"
+#
+# First-time start (no index on disk yet):
+#   docker compose up
+#   → FastAPI answers /health immediately (status: "building")
+#   → Index builds in the background (2–8 hours for full Wikipedia)
+#   → /search becomes available automatically when the build finishes
+#
+# All subsequent starts (index already on volume):
+#   docker compose up
+#   → Index loads from disk (~10–30s), then /search is ready
+#
+# Force a full rebuild (e.g. after a new Wikipedia dump):
+#   Set BUILD_RESUME=false in .env, then: docker compose up
+#
+# Health: curl http://localhost:8001/health
+# Search: curl "http://localhost:8001/search?q=photosynthesis&k=5"
 
 services:
   wiki-search:
@@ -13,3 +26,8 @@ services:
       - .env
     ports:
       - "8001:8000"
+    volumes:
+      - wiki-data:/data
+
+volumes:
+  wiki-data:
