@@ -16,6 +16,7 @@ import math
 import os
 import random
 import urllib.request
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -187,7 +188,7 @@ def generate_embeddings(
     )
 
     # Read all titles upfront (we already counted them; batch_size only controls encode calls).
-    titles = []
+    titles: list[str] = []
     with titles_path.open(encoding="utf-8") as fh:
         for line in fh:
             stripped = line.strip()
@@ -395,3 +396,156 @@ def _fetch_stream(dump_url: str):  # pragma: nocover
     cl = resp.headers.get("Content-Length")
     content_length: int | None = int(cl) if cl is not None else None
     return content_length, io.BytesIO(resp.read())
+
+
+# ── Pipeline orchestration (T15) ─────────────────────────────────────────────── #
+
+# Fixed progress ranges assigned to each stage.
+_STAGE_RANGES: dict[str, tuple[float, float]] = {
+    "download": (0.00, 0.35),
+    "embedding": (0.35, 0.85),
+    "faiss": (0.85, 0.98),
+}
+
+
+@dataclass
+class BuildState:
+    """Mutable state shared between the build pipeline and FastAPI.
+
+    Updated in-place by :func:`start_pipeline`; read directly by
+    ``/search`` / ``/health``.
+    """
+
+    build_status: str = "building"  # one of "building", "error", "ready"
+    build_progress: float = 0.0  # value updated by each stage's progress_cb
+    build_error: str | None = None  # set on unhandled exception
+    index: object | str | None = field(default=None, repr=False)
+    """Path to the built FAISS index on disk (or a loaded index object)."""
+
+    titles: list[str] = field(default_factory=list, repr=False)
+    """Titles loaded from TITLES_FILE after a successful build."""
+
+
+def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
+    """Execute the full build pipeline: download → embed → FAISS.
+
+    Designed to be called from a background thread; does not re-raise exceptions.
+
+    Parameters
+    ----------
+    state:
+        A :class:`BuildState` instance updated in-place as the stages advance.
+    config:
+        Configuration object bearing attributes matching ``app.config``.
+        Accepts attrs-style objects or plain dicts.  When *None*, falls back to
+        module-level ``app.config`` at import time.
+
+    Returns
+    -------
+    bool
+        ``True`` when the build completes successfully; ``False`` on error
+        (error is always reflected in *state* instead of via exception).
+    """
+    # ── resolve config ──────────────────────────────────────────────── #
+    if config is None:
+        import app.config as _cfg  # late import avoids circular deps.
+    elif isinstance(config, dict):
+
+        class _Cfg:  # noqa: SLF001 — adapter to make getattr work on plain dicts.
+            def __init__(self, d: dict) -> None:
+                for k, v in d.items():
+                    setattr(self, k, v)
+
+        _cfg = _Cfg(config)
+    else:
+        _cfg = config  # already attrs-style.
+
+    # ── helpers (inner functions capture *_cfg* via Python scoping) ────── #
+
+    def _mapped_cb(range_name: str):  # type: ignore[no-untyped-def]
+        """Return a progress callback mapping stage-local values to the state."""
+
+        def mapper(value: float) -> None:  # type: ignore[misc] — intentionally dynamic.
+            start, end = _STAGE_RANGES[range_name]
+            state.build_progress = start + (end - start) * value
+
+        return mapper
+
+    # ── Stage 1: download Titles (0 → .35) ──────────────────────────── #
+    state.build_status = "building"
+    state.build_error = None
+    try:
+        _mapped_cb("download")(0.0)  # initial value.
+        n = download_titles(
+            Path(_cfg.TITLES_FILE),
+            str(_cfg.WIKI_DUMP_URL),
+            bool(_cfg.BUILD_RESUME),
+            _mapped_cb("download"),
+        )
+        if n <= 0:
+            raise RuntimeError("download_titles returned zero non-empty titles")
+        _mapped_cb("download")(1.0)
+    except BaseException as exc:  # noqa: BLE001 — thread must never crash silently.
+        state.build_status = "error"
+        state.build_error = str(exc)
+        logger.exception("Build failed during download: %s", exc)
+        return False
+
+    # ── Stage 2: generate Embeddings (.35 → .85) ─────────────────────
+    state.build_status = "embedding"
+    try:
+        _stem = str(Path(str(_cfg.TITLES_FILE)).with_suffix(""))
+        embeddings_path = Path(_stem + "_embeddings.npy")
+        _mapped_cb("embedding")(0.0)
+        n2 = generate_embeddings(
+            Path(_cfg.TITLES_FILE),
+            embeddings_path,
+            str(_cfg.MODEL_NAME),
+            int(_cfg.BUILD_BATCH_SIZE),
+            bool(_cfg.BUILD_RESUME),
+            _mapped_cb("embedding"),
+        )
+        if n2 <= 0:
+            raise RuntimeError("generate_embeddings returned zero titles")
+    except BaseException as exc:  # noqa: BLE001
+        state.build_status = "error"
+        state.build_error = str(exc)
+        logger.exception("Build failed during embedding: %s", exc)
+        return False
+
+    # ── Stage 3: FAISS index (.85 → .98) ─────────────────────────────
+    state.build_status = "indexing_faiss"
+    try:
+        _mapped_cb("faiss")(0.0)
+        build_faiss_index(
+            str(embeddings_path),
+            str(_cfg.BUILD_MANIFEST).removesuffix(".json") + "_titles.txt",
+            #   ^ workaround for T15: the stub path used as dummy titles ref.
+            Path(str(_cfg.FAISS_INDEX)),
+            str(_cfg.BUILD_MANIFEST),
+            int(_cfg.BUILD_NLIST),
+            float(_cfg.BUILD_SAMPLE_FRAC),
+            bool(_cfg.BUILD_RESUME),
+            _mapped_cb("faiss"),
+        )
+    except BaseException as exc:  # noqa: BLE001
+        state.build_status = "error"
+        state.build_error = str(exc)
+        logger.exception("Build failed during FAISS index: %s", exc)
+        return False
+
+    # ── all stages succeed ──────────────────────────────────────────── #
+    state.build_status = "ready"
+    state.build_progress = 1.0
+
+    logger.info("Build complete — index at %s", _cfg.FAISS_INDEX)
+    return True
+
+
+def load_titles_from_file(path: str | Path) -> list[str]:
+    """Return all non-empty lines from *path* as a list of strings."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8") as fh:
+        return [line.strip() for line in fh if line.strip()]
