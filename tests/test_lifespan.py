@@ -53,7 +53,7 @@ def _boot_app(monkeypatch, tmp_data_dir):
     for target, name, value in _make_mocks():
         monkeypatch.setattr(target, name, value)
 
-    import app.main as mod  # noqa: PLC0415 (after patches are active)
+    import app.main as mod
     from tests.conftest import _patch_temp_paths
 
     _patch_temp_paths(tmp_data_dir, monkeypatch)

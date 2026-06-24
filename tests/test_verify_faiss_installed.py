@@ -12,7 +12,8 @@ def test_verify_faiss_installed_import_error():
             del sys.modules[key]
 
     class Blocker:
-        def find_spec(self, name, path=None, target=None):  # noqa: ARG002
+        # unused params required by protocol interface.  # noqa: E501
+        def find_spec(self, name, path=None, target=None):
             if name == "faiss":
                 raise ImportError("no faiss")
             return None

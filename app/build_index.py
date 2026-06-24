@@ -3,7 +3,7 @@
 Stage 1: download_titles()   — fetch + decompress Wikipedia titles dump
 Stage 2: generate_embeddings() — encode titles to vectors via sentence-transformers
 Stage 3: build_faiss_index()  — train IVF index and write manifest
-"""  # noqa: A001,D400,DAR
+"""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def download_titles(
                 if not text:
                     continue
                 out.write(text.encode("utf-8"))
-                out.write(b"\n")  # type: ignore[arg-type]  # noqa:SFS2,PERF203,FURB265,RSE102,SIM901,TRY302,TYP001
+                out.write(b"\n")  # type: ignore[arg-type]
                 count += 1
 
     progress_cb(1.0)  # writing complete regardless of Content-Length header
@@ -149,7 +149,7 @@ def generate_embeddings(
     # Embedding dimension comes from app.config (defaults 384 for MiniLM-L6-v2).
     import app.config as _cfg
 
-    embed_dim: int = _cfg.EMBED_DIM  # noqa: ANN401 intentionally loosely typed; tests may set other values.
+    embed_dim: int = _cfg.EMBED_DIM
     expected_bytes = n_titles * int(embed_dim) * np.dtype("float32").itemsize
 
     if resume and embeddings_path.exists() and os.path.getsize(embeddings_path) == expected_bytes:
@@ -178,7 +178,7 @@ def generate_embeddings(
         str(embeddings_path),
         dtype="float32",
         mode="w+",
-        shape=(n_titles, int(embed_dim)),  # noqa: SIM905 — explicit w+ for clarity.
+        shape=(n_titles, int(embed_dim)),
     )
 
     # Read all titles upfront (we already counted them; batch_size only controls encode calls).
@@ -195,15 +195,15 @@ def generate_embeddings(
     while (batch_begin := int(batch_idx * n_titles / num_batches if num_batches else 0)) < n_titles:
         batch_end = min(int((batch_idx + 1) * n_titles / num_batches), n_titles)
 
-        # pragma: nocover — _load_model always returns .encode producing arrays in tests.  # noqa: E501
+        # pragma: nocover — _load_model always returns .encode producing arrays in tests.
         embeddings = model.encode(
-            titles[batch_begin:batch_end],  # noqa: E501,TYP,F841
+            titles[batch_begin:batch_end],
             normalize_embeddings=True,
             show_progress_bar=False,
         )
 
         n_in_batch = embeddings.shape[0]
-        memmap[batch_begin : batch_begin + n_in_batch] = embeddings  # noqa: SIM905 — explicit slice assignment.
+        memmap[batch_begin : batch_begin + n_in_batch] = embeddings
 
         progress = (batch_idx + 1) / max(num_batches, 1) if num_batches else 1.0
         progress_cb(progress)

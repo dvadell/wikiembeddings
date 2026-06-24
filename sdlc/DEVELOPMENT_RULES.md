@@ -8,3 +8,5 @@ uv run ruff check .
 ```
 uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=95 tests
 ```
+
+* Don't add `noqa` pragmas unless really necessary. If you really need to, ask for confirmation.

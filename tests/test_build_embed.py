@@ -16,7 +16,6 @@ Acceptance criteria covered
 
 from __future__ import annotations
 
-import math  # noqa: F401 — used in test progress monotonic check.
 from pathlib import Path
 from unittest import mock
 
@@ -105,7 +104,7 @@ class TestL2Normalisation:
 
         mmap = np.memmap(str(embeddings), dtype="float32", mode="r", shape=(3, 384))
         for i in range(3):
-            norm = float(np.linalg.norm(mmap[i]))  # noqa: FURB154 — intentional row iteration to verify L2 norms.
+            norm = float(np.linalg.norm(mmap[i]))  # noqa: FURB154 — converts np.float64 to Python float for comparison.
             assert abs(norm - 1.0) < 1e-5, f"row {i} norm={norm}"
 
 
