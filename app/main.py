@@ -130,8 +130,8 @@ def health() -> dict[str, object]:
     return {"status": "ok", "titles_loaded": len(state.get("titles", []))}
 
 
-if __name__ == "__main__":  # pragma: no cover
-    import uvicorn  # pragma: no cover
+if __name__ == "__main__":
+    import uvicorn
 
-    logging.basicConfig(level=logging.INFO)  # pragma: no cover
-    uvicorn.run(app, host="0.0.0.0", port=PORT, workers=WORKERS)  # pragma: no cover
+    logging.basicConfig(level=logging.INFO)
+    uvicorn.run(app, host="0.0.0.0", port=PORT, workers=WORKERS)

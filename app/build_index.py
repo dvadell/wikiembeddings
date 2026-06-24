@@ -85,6 +85,8 @@ def _count_titles_file(path: Path) -> int:
     return count
 
 
+# Tests mock _fetch_stream entirely with synthetic (content_length, BytesIO)
+# stubs — they never call the real function.
 def _fetch_stream(dump_url: str):  # -> Tuple[int | None, BinaryIO]
     """Return (content_length_or_None, readable_bytes_io) from *dump_url*.
 
