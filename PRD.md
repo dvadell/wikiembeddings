@@ -135,7 +135,7 @@ Always returns `200 OK` — even while the index is building. Reflects the curre
 | Model          | `all-MiniLM-L6-v2` (384-dim)   | Small footprint (~90 MB), fast inference, good quality for title lookup |
 | Index storage  | FAISS IVF4096 on disk           | Fast exact+approximate search at scale; single file portability |
 | Language       | Python 3.12                     | Rich ML tooling ecosystem; `sentence-transformers` is Python-first |
-| Title source   | Wikipedia Cirrussearch dump     | Official snapshot, updated monthly, plain-text title extraction |
+| Title source   |  Official Wikipedia titles dump (ns0) | Official snapshot, updated monthly, plain-text title extraction |
 | Build execution | Background thread (not async)  | `sentence-transformers` and FAISS are CPU-bound and not async-friendly; `threading.Thread` runs them without blocking the event loop |
 
 ### 7.2 Constraints
@@ -178,7 +178,7 @@ The build pipeline lives in `app/build_index.py` and is called from the FastAPI 
 
 Pipeline steps:
 
-1. **Download titles** — fetch the Wikipedia Cirrussearch dump (`enwiki-*-cirrussearch-content.json.gz`) via the Wikimedia download API and extract all `title` fields into `wiki_titles.txt` (one title per line, UTF-8).
+1. **Download titles** — fetch `enwiki-latest-all-titles-in-ns0.gz` from Wikimedia — a plain gzip with one title per line — and decompress it into `wiki_titles.txt` (one title per line, UTF-8).
 2. **Batch encode** — load `all-MiniLM-L6-v2` and encode titles in configurable batches (default 512), writing float32 embeddings to a memory-mapped numpy array to avoid OOM on large corpora.
 3. **Build FAISS index** — train an `IVF4096,Flat` index on a random sample, then add all vectors. L2-normalise before insertion to turn inner-product search into cosine similarity.
 4. **Write outputs** — atomically rename temp files to `wiki_faiss.index` and `wiki_titles.txt`; write `build_manifest.json` with timestamp, title count, model name, and index parameters.

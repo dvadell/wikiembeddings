@@ -394,6 +394,29 @@ git branch: `ai-agent/t10_polish_final_verification_against_prd`
 
 ---
 
+# Tickets — Index Build Pipeline
+
+> **Reference:** [PRD.md](./PRD.md) — see §5, §7.3, §7.4, §8.1, §8.2, §9, SC2, SC6–SC8
+>
+> These tickets add the **auto-build on first start** feature described in PRD v1.2.
+> The build runs as a background thread inside the existing FastAPI process — same image,
+> same container, no orchestration changes beyond adding a named volume.
+>
+> Tickets continue from T10. You've completed T0–T7.
+
+---
+
+## Global acceptance criteria (all tickets)
+
+| # | Criterion | How verified |
+|---|-----------|--------------|
+| G1 | `ruff format` on all modified Python files | CI step or pre-commit hook |
+| G2 | Full pytest suite exits 0 on Python 3.12 (`ubuntu-latest`) | `pytest tests/` in CI |
+| G3 | `ruff check` passes on all modified and new Python files | `ruff check app/ tests/` in CI |
+| G4 | Coverage stays ≥ 95% line coverage for the `app/` package | `--cov-fail-under=95` in CI |
+
+---
+
 ## T11 — Build configuration & env vars
 git branch: `ai-agent/t11_build_config_env_vars`
 
@@ -403,7 +426,7 @@ Extend `app/config.py` with the new build-stage environment variables introduced
 |---|------|-------|
 | 0.0 | Create a new branch with the name shown in this ticket and work on it until completion | Per-ticket prerequisite |
 | 11.1 | Add the following config vars to `app/config.py` with documented defaults: `WIKI_DUMP_URL`, `BUILD_BATCH_SIZE` (int, 512), `BUILD_NLIST` (int, 4096), `BUILD_SAMPLE_FRAC` (float, 0.1), `BUILD_RESUME` (bool, **true**), `BUILD_MANIFEST` (str, `"build_manifest.json"`) | Mirror the pattern used for existing vars |
-| 11.2 | `WIKI_DUMP_URL` default should resolve to the Wikimedia latest Cirrussearch dump for English Wikipedia. Acceptable: hard-code the pattern URL with `{date}` resolved at runtime, or use the Wikimedia API to discover the latest dump | Document chosen approach in a code comment |
+| 11.2 | `WIKI_DUMP_URL` default is `https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-all-titles-in-ns0.gz` — a plain gzip file with one title per line, namespace 0 (main articles only), always pointing to the latest dump | Hard-code this as the default in `app/config.py`; no date resolution or API discovery needed |
 | 11.3 | `BUILD_RESUME` must be coerced from the string `"true"` / `"false"` / `"1"` / `"0"` to a Python `bool` — not a raw string comparison | `os.environ.get("BUILD_RESUME", "true").lower() in ("true", "1")` |
 | 11.4 | Write unit tests in `tests/test_build_config.py` covering: all new defaults, env-override of each new var, bool coercion edge cases for `BUILD_RESUME`, int/float coercion for the numeric vars | Extend existing config test patterns |
 
@@ -421,26 +444,25 @@ Extend `app/config.py` with the new build-stage environment variables introduced
 ## T12 — Wikipedia title downloader (`app/build_index.py` — stage 1)
 git branch: `ai-agent/t12_wikipedia_title_downloader`
 
-Implement the download-and-extract stage of the build pipeline.
+Implement the download-and-extract stage of the build pipeline. The source file is `enwiki-latest-all-titles-in-ns0.gz` — a plain gzip with one title per line, no JSON parsing needed.
 
 | # | Task | Notes |
 |---|------|-------|
 | 0.0 | Create a new branch with the name shown in this ticket and work on it until completion | Per-ticket prerequisite |
 | 12.1 | Create `app/build_index.py` with a `download_titles(output_path: Path, dump_url: str, resume: bool, progress_cb: Callable[[float], None]) -> int` function | Returns number of titles written; `progress_cb` called with a float 0.0–1.0 so the caller can update `app.state.build_progress` |
-| 12.2 | Fetch the Cirrussearch dump (gzip-compressed NDJSON) using `httpx` (streaming) or `urllib.request` — stream the download, do not load the whole file into memory | Use `gzip.open` on the streamed bytes |
-| 12.3 | For each JSON line, extract the `"title"` field (skip lines where it is absent or empty) and write to `output_path` (one title per line, UTF-8) | |
+| 12.2 | Fetch the gzip file using `httpx` (streaming) or `urllib.request` and decompress on the fly with `gzip.open` — do not load the whole file into memory | Each decompressed line is a title; strip whitespace and skip empty lines. No JSON parsing needed. |
+| 12.3 | Write titles to `output_path` (one per line, UTF-8); log progress every 100k titles at INFO level | |
 | 12.4 | If `resume=True` and `output_path` already exists, skip download entirely, log an INFO skip message, and call `progress_cb(1.0)` | Resumability per PRD §7.4 |
-| 12.5 | Log progress every 100k titles at INFO level | Operator visibility during multi-hour run |
-| 12.6 | Write unit tests in `tests/test_build_download.py` with a tiny synthetic NDJSON fixture (10 lines, 3 valid titles, 2 empty, 5 missing key) — mock HTTP, no network access | |
+| 12.5 | Write unit tests in `tests/test_build_download.py` using a tiny synthetic gzip fixture (10 lines, 2 empty) — mock HTTP, no network access | Simple fixture: `gzip.compress(b"Title One\nTitle Two\n\nTitle Three\n...")` |
 
 ### Acceptance criteria
 
 | # | Criterion | How verified |
 |---|-----------|--------------|
-| 12.A | Returns exact count of non-empty titles written. | Unit test: return value == 3 from 10-line fixture. |
-| 12.B | Lines without `"title"` or with empty string are skipped. | Unit test: output file has exactly 3 lines. |
+| 12.A | Returns exact count of non-empty titles written. | Unit test: return value == 8 from 10-line fixture with 2 empty lines. |
+| 12.B | Empty lines and surrounding whitespace are skipped/stripped. | Unit test: output file has exactly 8 lines, none blank. |
 | 12.C | `resume=True` + existing file → HTTP client not called; `progress_cb(1.0)` called. | Mock HTTP call count == 0; progress_cb call args asserted. |
-| 12.D | Download is streamed (`httpx.stream` or equivalent), not loaded into memory in one call. | Code review. |
+| 12.D | Download is streamed, not loaded into memory in one call. | Code review: streaming pattern visible in implementation. |
 | 12.E | Coverage on download stage ≥ 95%. | CI coverage report. |
 
 ---
