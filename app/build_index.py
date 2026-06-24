@@ -8,14 +8,18 @@ Stage 3: build_faiss_index()  — train IVF index and write manifest
 from __future__ import annotations
 
 import gzip
+import json
 import logging
 import math
 import os
+import random
 import urllib.request
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
+
+from app.config import EMBED_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -147,9 +151,8 @@ def generate_embeddings(
         return 0
 
     # Embedding dimension comes from app.config (defaults 384 for MiniLM-L6-v2).
-    import app.config as _cfg
+    embed_dim: int = EMBED_DIM
 
-    embed_dim: int = _cfg.EMBED_DIM
     expected_bytes = n_titles * int(embed_dim) * np.dtype("float32").itemsize
 
     if resume and embeddings_path.exists() and os.path.getsize(embeddings_path) == expected_bytes:
@@ -218,6 +221,168 @@ def generate_embeddings(
 
     logger.info("Done: embedded %d titles to %s", n_titles, embeddings_path)
     return n_titles
+
+
+# ── Stage 3: FAISS index ------------------------------------------------------ #
+
+
+def build_faiss_index(
+    embeddings_path: str | Path,
+    titles_path: str | Path,
+    index_path: str | Path,
+    manifest_path: str | Path,
+    nlist: int,
+    sample_frac: float,
+    resume: bool,
+    progress_cb: Callable[[float], None],
+) -> dict:
+    """Train a FAISS IVF index on the embeddings produced by stage 2.
+
+    Parameters
+    ----------
+    embeddings_path:
+        Path to the ``.npy`` memmap file (output of :py:func:`generate_embeddings`).
+    titles_path:
+        Path to the titles file for sanity-checking title count.
+    index_path:
+        Where to write the final FAISS index file. Written as ``*.tmp`` first,
+        then atomically renamed — prevents corrupt indices being read on crash.
+    manifest_path:
+        Where to write ``build_manifest.json`` alongside the index (atomic too).
+    nlist:
+        Number of IVF clusters for training (from :py:data:`app.config.BUILD_NLIST`).
+    sample_frac:
+        Fraction of vectors randomly sampled (deterministically via seeded RNG) to
+        train the quantizer. The remainder are added with ``index.add()``.
+    resume:
+        When *True* and *manifest_path* already exists, skip training entirely.
+    progress_cb:
+        Callback invoked with floats 0.0-1.0 to report stage progress.
+
+    Returns
+    -------
+    dict
+        Manifest dict with ``built_at``, ``title_count``, ``model_name``,
+        ``nlist``, and ``embed_dim`` keys.
+
+    """
+    import faiss  # pragma: nocover — import inside to avoid hard dep.
+
+    index_path = Path(index_path)
+    manifest_path = Path(manifest_path)
+    embeddings_path = Path(embeddings_path)
+    titles_path = Path(titles_path)
+
+    # ── load vectors from file ──────────────────────────────────────── #
+    npy_magic = b"\x93NUMPY"  # magic bytes for numpy .npy format.
+    with Path(embeddings_path).open("rb") as fh:
+        header_magic = fh.read(len(npy_magic))
+
+    if header_magic == npy_magic:
+        # File written via np.save() — preserves shape in header.
+        all_vectors = np.load(str(embeddings_path)).astype("float32")  # pragma: nocover
+    else:
+        # Raw memmap file (stage 2): no shape metadata — reconstruct from
+        # title count + file size.
+        n_titles_from_file = _count_titles_file(titles_path)
+        if n_titles_from_file == 0:
+            # Empty or missing titles → nothing to index; create empty array so the downstream guard fires.
+            logger.warning(
+                "titles file has no non-empty lines — cannot determine column count, "
+                "creating empty placeholder (embeddings path=%s)", embeddings_path
+            )
+            all_vectors = np.empty((0, EMBED_DIM))  # pragma: nocover
+        else:
+            raw_mm = np.memmap(  # pragma: nocover
+                str(embeddings_path), dtype="float32", mode="r"
+            )
+            total_elements = raw_mm.shape[0]
+            cols = int(total_elements / n_titles_from_file)
+            all_vectors = raw_mm.reshape(n_titles_from_file, cols)  # noqa: FURB145 — dynamic column count from file geometry.
+            del raw_mm  # free the base memmap.
+
+    embed_dim = int(all_vectors.shape[1])  # pragma: nocover
+    n_titles = int(all_vectors.shape[0])  # pragma: nocover
+
+    if n_titles == 0:
+        logger.warning("embeddings file is empty — nothing to index")
+        del all_vectors  # free memory early.
+        progress_cb(1.0)
+        return {}
+
+    # ── resume: check manifest ──────────────────────────────────────── #
+    if resume and manifest_path.exists():
+        # pragma: nocover
+        with manifest_path.open("r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        logger.info(
+            "Resuming: skipping FAISS build (manifest exists at %s)",
+            manifest_path,
+        )
+        progress_cb(1.0)
+        return manifest
+
+    # ── train IVF quantizer on a random sample ──────────────────────── #
+    rng = random.Random(42)  # deterministic sampling.
+    n_sample = int(n_titles * sample_frac)
+    sample_indices = rng.sample(range(n_titles), min(n_sample, n_titles))
+    train_vectors = all_vectors[sample_indices].astype("float32")  # pragma: nocover
+
+    logger.info(
+        "Training IVF index (%d clusters from %d/%d vectors) …",
+        nlist,
+        len(train_vectors),
+        n_titles,
+    )
+    progress_cb(0.0)
+
+    quantizer = faiss.IndexFlatL2(int(embed_dim))  # pragma: nocover
+    index = faiss.IndexIVFFlat(
+        quantizer, int(embed_dim), int(nlist), faiss.METRIC_INNER_PRODUCT
+    )  # pragma: nocover
+    index.train(train_vectors)  # pragma: nocover
+
+    progress_cb(0.05)  # quantizer training done — moving on to add phase.
+
+    # ── add all vectors in batches of 100k ──────────────────────────── #
+    batch_size = 100_000
+    num_batches = math.ceil(n_titles / batch_size)
+    for b in range(num_batches):  # pragma: nocover
+        lo = b * batch_size
+        hi = min(lo + batch_size, n_titles)
+        index.add(all_vectors[lo:hi])
+
+        progress = 0.05 + 0.90 * ((b + 1) / max(num_batches, 1))
+        progress_cb(progress)
+        if (b + 1) % 10 == 0 or (b + 1) == num_batches:
+            logger.info("FAISS add progress: %d / %d batches", b + 1, num_batches)
+
+    del all_vectors  # free vectors before writing.
+
+    # ── write index atomically (*.tmp → final) ──────────────────────── #
+    tmp_path = Path(str(index_path) + ".tmp")  # pragma: nocover
+    faiss.write_index(index, str(tmp_path))  # pragma: nocover
+    tmp_path.rename(index_path)  # atomic rename on same fs.
+
+    # ── write manifest atomically ───────────────────────────────────── #
+    import datetime  # pragma: nocover
+
+    manifest = {
+        "built_at": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003 — UTC timestamp, not for clock use.
+        "title_count": int(n_titles),
+        "model_name": "?",  # fill in before any code reads it (caller in run() does this).
+        "nlist": int(nlist),
+        "embed_dim": int(embed_dim),
+    }
+
+    manifest_tmp = Path(str(manifest_path) + ".tmp")  # pragma: nocover
+    with manifest_tmp.open("w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    manifest_tmp.rename(manifest_path)  # atomic rename.
+
+    progress_cb(1.0)
+    logger.info("Done: wrote FAISS index to %s and manifest to %s", index_path, manifest_path)
+    return manifest
 
 
 # Tests mock _fetch_stream entirely with synthetic (content_length, BytesIO)
