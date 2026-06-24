@@ -7,7 +7,9 @@ Stage 3: build_faiss_index()  — train IVF index and write manifest
 
 from __future__ import annotations
 
+import datetime
 import gzip
+import io
 import json
 import logging
 import math
@@ -43,7 +45,7 @@ def _load_model(model_name: str):  # pragma: nocover
     Tests replace this function to return a mock whose ``.encode`` produces
     deterministic float32 arrays — no real model is ever loaded in CI.
     """
-    from sentence_transformers import SentenceTransformer  # pragma: nocover
+    from sentence_transformers import SentenceTransformer
 
     return SentenceTransformer(model_name)
 
@@ -92,15 +94,15 @@ def download_titles(
     progress_cb(0.0)
     with gzip.GzipFile(fileobj=raw_stream, mode="rb") as gz:
         with output_path.open("wb") as out:
-            for raw_line in gz:  # type: ignore[union-attr]
+            for raw_line in gz:  # type: ignore[union-attr] — gzip.GzipFile.__iter__ returns bytes.
                 text = raw_line.decode("utf-8").strip()
                 if not text:
                     continue
                 out.write(text.encode("utf-8"))
-                out.write(b"\n")  # type: ignore[arg-type]
+                out.write(b"\n")  # type: ignore[arg-type] — Path.open("wb") returns BinaryIO.
                 count += 1
 
-    progress_cb(1.0)  # writing complete regardless of Content-Length header
+    progress_cb(1.0)  # writing complete regardless of Content-Length header.
 
     logger.info("Done: wrote %d titles to %s", count, output_path)
     return count
@@ -153,7 +155,7 @@ def generate_embeddings(
     # Embedding dimension comes from app.config (defaults 384 for MiniLM-L6-v2).
     embed_dim: int = EMBED_DIM
 
-    expected_bytes = n_titles * int(embed_dim) * np.dtype("float32").itemsize
+    expected_bytes = n_titles * embed_dim * np.dtype("float32").itemsize
 
     if resume and embeddings_path.exists() and os.path.getsize(embeddings_path) == expected_bytes:
         logger.info(
@@ -181,7 +183,7 @@ def generate_embeddings(
         str(embeddings_path),
         dtype="float32",
         mode="w+",
-        shape=(n_titles, int(embed_dim)),
+        shape=(n_titles, embed_dim),
     )
 
     # Read all titles upfront (we already counted them; batch_size only controls encode calls).
@@ -198,8 +200,7 @@ def generate_embeddings(
     while (batch_begin := int(batch_idx * n_titles / num_batches if num_batches else 0)) < n_titles:
         batch_end = min(int((batch_idx + 1) * n_titles / num_batches), n_titles)
 
-        # pragma: nocover — _load_model always returns .encode producing arrays in tests.
-        embeddings = model.encode(
+        embeddings = model.encode(  # pragma: nocover — _load_model stubbed in tests.
             titles[batch_begin:batch_end],
             normalize_embeddings=True,
             show_progress_bar=False,
@@ -266,7 +267,7 @@ def build_faiss_index(
         ``nlist``, and ``embed_dim`` keys.
 
     """
-    import faiss  # pragma: nocover — import inside to avoid hard dep.
+    import faiss  # late import: tests patch sys.modules["faiss"] before calling.
 
     index_path = Path(index_path)
     manifest_path = Path(manifest_path)
@@ -280,29 +281,26 @@ def build_faiss_index(
 
     if header_magic == npy_magic:
         # File written via np.save() — preserves shape in header.
-        all_vectors = np.load(str(embeddings_path)).astype("float32")  # pragma: nocover
+        all_vectors = np.load(str(embeddings_path)).astype("float32")
     else:
         # Raw memmap file (stage 2): no shape metadata — reconstruct from
         # title count + file size.
         n_titles_from_file = _count_titles_file(titles_path)
         if n_titles_from_file == 0:
-            # Empty or missing titles → nothing to index; create empty array so the downstream guard fires.
+            # Empty or missing titles → use empty placeholder; downstream guard fires.
             logger.warning(
                 "titles file has no non-empty lines — cannot determine column count, "
-                "creating empty placeholder (embeddings path=%s)", embeddings_path
+                "creating empty placeholder (embeddings path=%s)", embeddings_path,
             )
-            all_vectors = np.empty((0, EMBED_DIM))  # pragma: nocover
+            all_vectors = np.empty((0, EMBED_DIM))
         else:
-            raw_mm = np.memmap(  # pragma: nocover
-                str(embeddings_path), dtype="float32", mode="r"
-            )
-            total_elements = raw_mm.shape[0]
-            cols = int(total_elements / n_titles_from_file)
-            all_vectors = raw_mm.reshape(n_titles_from_file, cols)  # noqa: FURB145 — dynamic column count from file geometry.
+            raw_mm = np.memmap(str(embeddings_path), dtype="float32", mode="r")
+            cols = int(raw_mm.shape[0] / n_titles_from_file)
+            all_vectors = raw_mm.reshape(n_titles_from_file, cols)
             del raw_mm  # free the base memmap.
 
-    embed_dim = int(all_vectors.shape[1])  # pragma: nocover
-    n_titles = int(all_vectors.shape[0])  # pragma: nocover
+    embed_dim = int(all_vectors.shape[1])
+    n_titles = int(all_vectors.shape[0])
 
     if n_titles == 0:
         logger.warning("embeddings file is empty — nothing to index")
@@ -312,7 +310,6 @@ def build_faiss_index(
 
     # ── resume: check manifest ──────────────────────────────────────── #
     if resume and manifest_path.exists():
-        # pragma: nocover
         with manifest_path.open("r", encoding="utf-8") as fh:
             manifest = json.load(fh)
         logger.info(
@@ -336,10 +333,10 @@ def build_faiss_index(
     )
     progress_cb(0.0)
 
-    quantizer = faiss.IndexFlatL2(int(embed_dim))  # pragma: nocover
-    index = faiss.IndexIVFFlat(
-        quantizer, int(embed_dim), int(nlist), faiss.METRIC_INNER_PRODUCT
-    )  # pragma: nocover
+    quantizer = faiss.IndexFlatL2(embed_dim)  # pragma: nocover
+    index = faiss.IndexIVFFlat(  # pragma: nocover
+        quantizer, embed_dim, int(nlist), faiss.METRIC_INNER_PRODUCT
+    )
     index.train(train_vectors)  # pragma: nocover
 
     progress_cb(0.05)  # quantizer training done — moving on to add phase.
@@ -365,10 +362,8 @@ def build_faiss_index(
     tmp_path.rename(index_path)  # atomic rename on same fs.
 
     # ── write manifest atomically ───────────────────────────────────── #
-    import datetime  # pragma: nocover
-
     manifest = {
-        "built_at": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003 — UTC timestamp, not for clock use.
+        "built_at": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
         "title_count": int(n_titles),
         "model_name": "?",  # fill in before any code reads it (caller in run() does this).
         "nlist": int(nlist),
@@ -387,23 +382,15 @@ def build_faiss_index(
 
 # Tests mock _fetch_stream entirely with synthetic (content_length, BytesIO)
 # stubs — they never call the real function.
-def _fetch_stream(dump_url: str):  # -> Tuple[int | None, BinaryIO]
+def _fetch_stream(dump_url: str):  # pragma: nocover
     """Return (content_length_or_None, readable_bytes_io) from *dump_url*.
 
     Tests replace with stubs returning synthetic data. In production this
     uses ``urllib.request`` so we get raw transport bytes unimpeded by httpx's
     auto-decompression (Wikimedia dumps have no Content-Encoding header).
-
     """
-    # pragma: nocover
-    import io  # pragma: nocover
-
-    req = urllib.request.Request(dump_url)  # pragma: nocover
-    resp = urllib.request.urlopen(req, timeout=60.0)  # pragma: nocover
-    cl = resp.headers.get("Content-Length")  # pragma: nocover
-    content_length: int | None  # pragma: nocover
-    if cl is not None:  # pragma: nocover
-        content_length = int(cl)  # type: ignore[assignment]  # pragma: nocover
-    else:  # pragma: nocover
-        content_length = None  # pragma: nocover
-    return content_length, io.BytesIO(resp.read())  # pragma: nocover
+    req = urllib.request.Request(dump_url)
+    resp = urllib.request.urlopen(req, timeout=60.0)
+    cl = resp.headers.get("Content-Length")
+    content_length: int | None = int(cl) if cl is not None else None
+    return content_length, io.BytesIO(resp.read())
