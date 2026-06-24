@@ -1,6 +1,7 @@
 # Contributing
 
-Contributions are welcome. Please follow these guidelines when opening a PR.
+Although this is experimental and I feel it's only useful to me, 
+contributions are welcome. Please follow these guidelines when opening a PR.
 
 ## Prerequisites
 
