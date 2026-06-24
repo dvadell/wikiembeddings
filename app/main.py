@@ -41,7 +41,7 @@ def _validate_path(path: str) -> str:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> None:  # noqa: D401
+async def lifespan(app: FastAPI) -> None:
     """Load everything into memory before accepting requests."""
     try:
         _verify_faiss_installed()
@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI) -> None:  # noqa: D401
 def _verify_faiss_installed() -> None:
     """Ensure FAISS is importable; sys.exit with an actionable message otherwise."""
     try:
-        import faiss as _  # noqa: F401 (top-level import side-effect)
+        import faiss  # noqa: F401 — side-effect: sys.exit on failure; unused binding OK.
     except ImportError:
         sys.exit("FAISS not installed. Run: pip install faiss-cpu")
 
@@ -91,7 +91,7 @@ app = FastAPI(
 
 
 @app.get("/search")
-def search(  # noqa: D402
+def search(
     q: str = Query(..., description="Your question or search phrase"),
     k: int = Query(DEFAULT_K, ge=1, le=100, description="Number of results"),
     nprobe: int = Query(
