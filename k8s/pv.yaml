@@ -1,0 +1,31 @@
+# PersistentVolume — example for k8s/pvc.yaml
+#
+# This is a cluster-level resource managed by the cluster admin.
+# Create exactly one before applying pvc.yaml.
+#
+# Pick the type that matches your cluster's storage backend:
+#   - EKS:  Elasticfilesystem (EFS)  — accessModes: ReadWriteMany
+#   - GKE:  Filestore (FileStore)    — accessModes: ReadWriteMany
+#   - AWS:  EBS                      — accessModes: RWO (single pod only)
+#   - GCP:  Filestore                — accessModes: ReadWriteMany
+#   - On-prem: NFS                  — accessModes: ReadWriteMany
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # Must match the PVC's volumename field (if specified) or be auto-linked
+  # by dynamic provisioning via a StorageClass.
+  name: wiki-data-pv
+spec:
+  capacity:
+    storage: 50Gi
+
+  accessModes:
+    - ReadWriteMany
+
+  # Example: NFS — most universal ReadWriteMany option.
+  nfs:
+    server: <nfs-server-address>   # e.g. "10.0.0.42"
+    path: "/exports/wiki-search"
+  storageClassName: manual          # must match a StorageClass that supports the above provisioner

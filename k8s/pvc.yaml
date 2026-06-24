@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wiki-data
+spec:
+  # ReadWriteMany lets multiple pods share the same PVC (e.g. rolling
+  # updates where the old pod still holds the index on disk).
+  accessModes:
+    - ReadWriteMany
+
+  resources:
+    requests:
+      # 50 GiB to hold FAISS index + titles (~tens of GiB per PRD §8.2).
+      # Provision a cluster-level PersistentVolume (S3-backed, EFS/GCS/Fast-SSD, or NFS)
+      # with a matching name and size before applying this claim.
+      storage: 50Gi

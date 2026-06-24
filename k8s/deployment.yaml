@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiki-search
+  labels:
+    app: wiki-search
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wiki-search
+  template:
+    metadata:
+      labels:
+        app: wiki-search
+    spec:
+      containers:
+        - name: wiki-search
+          image: ghcr.io/dvadell/wiki-search:latest
+          ports:
+            - containerPort: 8000
+              name: http
+
+          # ── Probes ────────────────────────────────────────────────
+          # Both probe /health — the same endpoint powers Docker HEALTHCHECK.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # ── Resources ───────────────────────────────────────────────
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+
+          # ── Config & secrets wired via envFrom (T8.4) + volume mounts (T8.6) ──
+          envFrom:
+            - configMapRef:
+                name: wiki-search-config
+          volumeMounts:
+            - name: wiki-data
+              mountPath: /data
+
+      volumes:
+        - name: wiki-data
+          persistentVolumeClaim:
+            claimName: wiki-data

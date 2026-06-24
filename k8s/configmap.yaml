@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wiki-search-config
+data:
+  # Model — sentence-transformers model on Hugging Face (PRD §9)
+  MODEL_NAME: "all-MiniLM-L6-v2"
+
+  # Embedding dimensionality (must match the chosen model's output size)
+  EMBED_DIM: "384"
+
+  # Path to the FAISS IVF index file (loaded at startup into memory)
+  FAISS_INDEX: "/data/wiki_faiss.index"
+
+  # Path to the Wikipedia titles list file (one title per line, loaded at startup)
+  TITLES_FILE: "/data/wiki_titles.txt"
+
+  # Default number of nearest-neighbour results for /search when k is omitted
+  DEFAULT_K: "5"
+
+  # Default FAISS IVF nprobe — cells to examine per search (accuracy/speed trade-off)
+  DEFAULT_NPROBE: "64"
+
+  # TCP port the uvicorn server listens on inside the container
+  PORT: "8000"
+
+  # Number of uvicorn worker processes
+  WORKERS: "1"
