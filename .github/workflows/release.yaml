@@ -64,6 +64,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ── buildx with containerd driver — required for GHA cache ────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # ── always tag the image as :main ─────────────────────────────
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
