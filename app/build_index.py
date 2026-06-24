@@ -18,6 +18,7 @@ import random
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace as _SimpleNamespace
 from typing import Callable
 
 import numpy as np
@@ -450,41 +451,29 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
     if config is None:
         import app.config as _cfg  # late import avoids circular deps.
     elif isinstance(config, dict):
-
-        class _Cfg:  # noqa: SLF001 — adapter to make getattr work on plain dicts.
-            def __init__(self, d: dict) -> None:
-                for k, v in d.items():
-                    setattr(self, k, v)
-
-        _cfg = _Cfg(config)
+        _cfg = _SimpleNamespace(**config)
     else:
-        _cfg = config  # already attrs-style.
+        _cfg = config
 
-    # ── helpers (inner functions capture *_cfg* via Python scoping) ────── #
-
-    def _mapped_cb(range_name: str):  # type: ignore[no-untyped-def]
-        """Return a progress callback mapping stage-local values to the state."""
-
-        def mapper(value: float) -> None:  # type: ignore[misc] — intentionally dynamic.
-            start, end = _STAGE_RANGES[range_name]
-            state.build_progress = start + (end - start) * value
-
-        return mapper
+    # ── inline progress helper ──────────────────────────────────────── #
+    def mprogress(range_name: str, value: float) -> None:
+        start, end = _STAGE_RANGES[range_name]
+        state.build_progress = start + (end - start) * value
 
     # ── Stage 1: download Titles (0 → .35) ──────────────────────────── #
     state.build_status = "building"
     state.build_error = None
     try:
-        _mapped_cb("download")(0.0)  # initial value.
+        mprogress("download", 0.0)
         n = download_titles(
             Path(_cfg.TITLES_FILE),
             str(_cfg.WIKI_DUMP_URL),
             bool(_cfg.BUILD_RESUME),
-            _mapped_cb("download"),
+            lambda v: mprogress("download", v),
         )
         if n <= 0:
             raise RuntimeError("download_titles returned zero non-empty titles")
-        _mapped_cb("download")(1.0)
+        mprogress("download", 1.0)
     except BaseException as exc:  # noqa: BLE001 — thread must never crash silently.
         state.build_status = "error"
         state.build_error = str(exc)
@@ -496,14 +485,14 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
     try:
         _stem = str(Path(str(_cfg.TITLES_FILE)).with_suffix(""))
         embeddings_path = Path(_stem + "_embeddings.npy")
-        _mapped_cb("embedding")(0.0)
+        mprogress("embedding", 0.0)
         n2 = generate_embeddings(
             Path(_cfg.TITLES_FILE),
             embeddings_path,
             str(_cfg.MODEL_NAME),
             int(_cfg.BUILD_BATCH_SIZE),
             bool(_cfg.BUILD_RESUME),
-            _mapped_cb("embedding"),
+            lambda v: mprogress("embedding", v),
         )
         if n2 <= 0:
             raise RuntimeError("generate_embeddings returned zero titles")
@@ -516,7 +505,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
     # ── Stage 3: FAISS index (.85 → .98) ─────────────────────────────
     state.build_status = "indexing_faiss"
     try:
-        _mapped_cb("faiss")(0.0)
+        mprogress("faiss", 0.0)
         build_faiss_index(
             str(embeddings_path),
             str(_cfg.BUILD_MANIFEST).removesuffix(".json") + "_titles.txt",
@@ -526,7 +515,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
             int(_cfg.BUILD_NLIST),
             float(_cfg.BUILD_SAMPLE_FRAC),
             bool(_cfg.BUILD_RESUME),
-            _mapped_cb("faiss"),
+            lambda v: mprogress("faiss", v),
         )
     except BaseException as exc:  # noqa: BLE001
         state.build_status = "error"
@@ -537,7 +526,6 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
     # ── all stages succeed ──────────────────────────────────────────── #
     state.build_status = "ready"
     state.build_progress = 1.0
-
     logger.info("Build complete — index at %s", _cfg.FAISS_INDEX)
     return True
 
