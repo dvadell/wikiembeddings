@@ -10,3 +10,4 @@ uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=95 tests
 ```
 
 * Don't add `noqa` pragmas unless really necessary. If you really need to, ask for confirmation.
+* Prefer simpler solutions to more complicated but complete ones. Let it fail if needed.
