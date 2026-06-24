@@ -43,7 +43,7 @@ def _fake_fetch_stream(raw_lines: list[str], total: int | None = 100):
 
 # ------------------------------------------------------------------ #
 #  Test data                                                             #
-#   8 real titles + 2 blank lines = 10 total -> expect count=8         #
+#   7 real titles + 3 blank lines = 10 elements -> expect count=7       #
 # ------------------------------------------------------------------ #
 
 _RAW_LINES = [
@@ -53,7 +53,7 @@ _RAW_LINES = [
     "Title Three",
     "Title Four",
     "",
-    "   ",  # all-whitespace line
+    "   ",  # all-whitespace line (not empty string, but blank after .strip())
     "Title Five",
     "Title Six",
     "Title Seven",
@@ -191,11 +191,11 @@ class TestStreaming:
 
 
 class TestBranchCoverage:
-    def test_total_size_none_doesnt_crash(self, tmp_path: Path):
-        """When fetch returns None content_length, progress_cb still works at end."""
+    def test_no_content_length_header_still_reports_progress(self, tmp_path: Path):
+        """When fetch returns None content_length, progress still goes to 1.0."""
         gz = _make_stream(["X"])
         out_file = tmp_path / "p.txt"
-        # Return None as total_size to cover the else branch of `if total_size`.
+        # total_size=None simulates a server that omits Content-Length.
         with mock.patch.object(m, "_fetch_stream", return_value=(None, gz)):
             count = m.download_titles(
                 out_file, "https://x/y", resume=False, progress_cb=mock.Mock()

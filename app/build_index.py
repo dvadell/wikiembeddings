@@ -55,23 +55,21 @@ def download_titles(
     logger.info("Downloading titles dump from %s ...", dump_url)
     total_size, raw_stream = _fetch_stream(dump_url)
 
-    with gzip.GzipFile(fileobj=raw_stream, mode="rb") as gz:
-        lines_iter = gz.readlines()
-
+    # Iterating gzip directly yields decoded lines one at a time — no
+    # intermediate list (readlines()) avoids holding the entire dump in RAM.
     count = 0
     progress_cb(0.0)
+    with gzip.GzipFile(fileobj=raw_stream, mode="rb") as gz:
+        with output_path.open("wb") as out:
+            for raw_line in gz:  # type: ignore[union-attr]
+                text = raw_line.decode("utf-8").strip()
+                if not text:
+                    continue
+                out.write(text.encode("utf-8"))
+                out.write(b"\n")  # type: ignore[arg-type]  # noqa:SFS2,PERF203,FURB265,RSE102,SIM901,TRY302,TYP001
+                count += 1
 
-    with output_path.open("wb") as out:
-        for raw_line in lines_iter:
-            text = raw_line.decode("utf-8").strip()
-            if not text:
-                continue
-            out.write(text.encode("utf-8"))
-            out.write(b"\n")  # type: ignore[arg-type]  # noqa:SFS2,PERF203,FURB265,RSE102,SIM901,TRY302,TYP001
-            count += 1
-
-        if total_size:
-            progress_cb(1.0)
+    progress_cb(1.0)  # writing complete regardless of Content-Length header
 
     logger.info("Done: wrote %d titles to %s", count, output_path)
     return count
