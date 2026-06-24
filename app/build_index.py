@@ -290,7 +290,8 @@ def build_faiss_index(
             # Empty or missing titles → use empty placeholder; downstream guard fires.
             logger.warning(
                 "titles file has no non-empty lines — cannot determine column count, "
-                "creating empty placeholder (embeddings path=%s)", embeddings_path,
+                "creating empty placeholder (embeddings path=%s)",
+                embeddings_path,
             )
             all_vectors = np.empty((0, EMBED_DIM))
         else:

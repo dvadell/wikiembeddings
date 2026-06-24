@@ -27,7 +27,6 @@ import pytest
 
 import app.build_index as m
 
-
 # ── Fixtures ------------------------------------------------------------------- #
 
 
