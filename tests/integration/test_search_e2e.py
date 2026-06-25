@@ -108,6 +108,9 @@ def _start_e2e(td: Path) -> Dict[str, Any]:
     mm.encode.return_value = np.zeros((1, 384), dtype="float32")
     main_mod.state["model"] = mm
 
+    # Ensure /search doesn't return 503 — pretend build is already done.
+    main_mod._build_state.status = "ready"  # type: ignore[attr-defined]
+
     return {"client": TestClient(main_mod.app), "state": main_mod.state}
 
 

@@ -1,4 +1,4 @@
-"""Lifespan: state population on startup and teardown on shutdown (5d.B, 5d.C).
+"""Lifespan: state population on startup and teardown on shutdown.
 
 Exercises the real FastAPI lifespan with mocked FAISS + model deps so that
 state is populated on startup and cleared on teardown.
@@ -64,7 +64,7 @@ def _boot_app(monkeypatch, tmp_data_dir):
 
 
 def test_lifecycle_state_populated_and_cleared(monkeypatch, tmp_data_dir):
-    """5d.B + 5d.C: state keys appear after start and vanish after shutdown."""
+    """State keys appear after start and vanish after shutdown."""
     mod = _boot_app(monkeypatch, tmp_data_dir)
     orig = dict(mod.state)
     mod.state.clear()
@@ -78,7 +78,10 @@ def test_lifecycle_state_populated_and_cleared(monkeypatch, tmp_data_dir):
 
         resp = client.get("/health")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert resp.json()["status"] in (
+            "ok",
+            "ready",
+        )  # ready on manifest path; ok backwards compat
 
     assert len(mod.state) == 0
 

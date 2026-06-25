@@ -130,6 +130,9 @@ def test_quality(_pairs_dir: Path, query: str, target_lidx: int, expected_substr
     model_mock.encode.return_value = enc_out  # controlled vector
     main_mod.state["model"] = model_mock
 
+    # Ensure /search doesn't return 503 — pretend build is already done.
+    main_mod._build_state.status = "ready"  # type: ignore[attr-defined]
+
     client = TestClient(main_mod.app)
     resp = client.get("/search", params={"q": query, "k": 5})
     assert resp.status_code == 200
