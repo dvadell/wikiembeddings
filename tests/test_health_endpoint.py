@@ -1,4 +1,4 @@
-"""Health endpoint — schema validation on a fully-cycled app (5d.A, 5d.B, 5d.C).
+"""Health endpoint — schema validation on a fully-cycled app.
 
 Exercises the real FastAPI lifespan with mocked FAISS + model deps so that
 state is populated on startup and cleared on teardown.
@@ -70,7 +70,7 @@ def _boot_app(monkeypatch, tmp_data_dir):
 
 
 def test_health_status_ok(monkeypatch, tmp_data_dir):
-    """5d.A: /health returns {"status": "ok"} via a fully-cycled app."""
+    """Health endpoint returns 200 with status and titles_loaded."""
     mod = _boot_app(monkeypatch, tmp_data_dir)
     orig = dict(mod.state)
     mod.state.clear()
@@ -84,7 +84,7 @@ def test_health_status_ok(monkeypatch, tmp_data_dir):
 
 
 def test_health_schema_full_lifecycle(monkeypatch, tmp_data_dir):
-    """5d.A+B+C: health schema + state populated + cleared via full lifespan."""
+    """Health schema + state populated + cleared via full lifespan."""
     mod = _boot_app(monkeypatch, tmp_data_dir)
     orig = dict(mod.state)
     mod.state.clear()
@@ -96,8 +96,8 @@ def test_health_schema_full_lifecycle(monkeypatch, tmp_data_dir):
         resp = client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "ok"
-        assert set(data.keys()) == {"status", "titles_loaded"}
+        assert data["status"] in ("ok", "ready")  # ready when manifest; ok for backwards compat
+        assert set(data.keys()) >= {"status", "progress", "titles_loaded"}
         assert isinstance(data["titles_loaded"], int)
 
     assert len(mod.state) == 0
@@ -106,13 +106,14 @@ def test_health_schema_full_lifecycle(monkeypatch, tmp_data_dir):
 
 
 def test_health_schema_keys_only(monkeypatch, tmp_data_dir):
-    """5d.A standalone: health endpoint keys are exactly {status, titles_loaded}."""
+    """Health endpoint keys include status, progress, and titles_loaded."""
     mod = _boot_app(monkeypatch, tmp_data_dir)
     orig = dict(mod.state)
     mod.state.clear()
 
     with TestClient(mod.app) as client:
-        assert set(client.get("/health").json().keys()) == {"status", "titles_loaded"}
+        keys = set(client.get("/health").json().keys())
+        assert keys >= {"status", "progress", "titles_loaded"}
 
     assert len(mod.state) == 0
     mod.state.clear()

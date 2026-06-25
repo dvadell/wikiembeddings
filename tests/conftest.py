@@ -65,21 +65,44 @@ def tmp_data_dir() -> Path:
 
 @pytest.fixture(autouse=True)
 def _override_config_paths(monkeypatch, tmp_data_dir: Path):
-    """Point app.config at temp files for every test."""
+    """Point app.config at temp files for every test (including module-level copies)."""
     import app.config as cfg
 
-    monkeypatch.setattr(cfg, "FAISS_INDEX", str(tmp_data_dir / "wiki_faiss.index"))
-    monkeypatch.setattr(cfg, "TITLES_FILE", str(tmp_data_dir / "wiki_titles.txt"))
+    tmp_faiss = str(tmp_data_dir / "wiki_faiss.index")
+    tmp_titles = str(tmp_data_dir / "wiki_titles.txt")
+    # A valid manifest stub so lifespan takes the sync load path (simplifies most tests).
+    tmp_manifest = str(tmp_data_dir / "build_manifest.json")
+    Path(tmp_manifest).write_text(
+        '{"built_at": "now", "title_count": 3, "model_name": "all-MiniLM-L6-v2",'
+        '"nlist": 4096, "embed_dim": 384}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(cfg, "FAISS_INDEX", tmp_faiss)
+    monkeypatch.setattr(cfg, "TITLES_FILE", tmp_titles)
+    monkeypatch.setattr(cfg, "BUILD_MANIFEST", tmp_manifest)
+
+    # Also patch module-level copies in app.main (set at import time via `from app.config` imports).
+    try:
+        import app.main as mod  # noqa: ANN201
+
+        mod.FAISS_INDEX = tmp_faiss
+        mod.TITLES_FILE = tmp_titles
+        mod.BUILD_MANIFEST = tmp_manifest
+    except ImportError:
+        pass  # haven't imported main yet — will be patched on first import.
 
 
 # ── TestClient with pre-seeded state (bypasses real model/index loading) ───
 
 
 @pytest.fixture()
-def client():
+def client(request):
     """Return a TestClient whose lifespan state is pre-seeded so /search & /health work."""
+
     from app import main as app_module
 
+    # Seed state (index, model) BEFORE yielding the client.
     original = dict(app_module.state)
     app_module.state["titles"] = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
     app_module.state["index"] = _make_wrapper_index()
@@ -87,6 +110,9 @@ def client():
     mock_model = MagicMock()
     mock_model.encode.return_value = np.zeros((1, 384), dtype="float32")
     app_module.state["model"] = mock_model
+
+    # Ensure /search doesn't return 503 — pretend build is already done.
+    app_module._build_state.status = "ready"  # type: ignore[attr-defined]
 
     yield TestClient(app_module.app)
 

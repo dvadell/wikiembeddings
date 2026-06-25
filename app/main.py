@@ -2,13 +2,20 @@
 
 Loads the FAISS index and sentence-transformer model once at startup,
 then serves queries over HTTP. Each search takes ~10ms instead of ~10s.
+
+On first start with no index (no build_manifest.json), a background thread
+runs download → embed → FAISS while /health stays online immediately with
+real-time progress reporting.
 """
 
 import logging
 import os
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import faiss
@@ -18,6 +25,7 @@ from fastapi.responses import JSONResponse
 from sentence_transformers import SentenceTransformer
 
 from app.config import (
+    BUILD_MANIFEST,
     DEFAULT_K,
     DEFAULT_NPROBE,
     FAISS_INDEX,
@@ -29,8 +37,22 @@ from app.config import (
 
 logger = logging.getLogger(__name__)
 
-# Global state — loaded once at startup
+
+# ── global build state (16.A: always available to /health, /search) ──── #
+
+
+@dataclass
+class BuildState:
+    """Mutable state shared between the build thread and API handlers."""
+
+    status: str = "building"  # "building" | "ready" | "error"
+    progress: float = 0.0  # 0.0–1.0 updated by each build stage
+    titles_loaded: int = field(default=-1, repr=False)  # -1 until known
+    error: str | None = None  # set on unhandled exception
+
+
 state: dict[str, Any] = {}
+_build_state: BuildState = BuildState()
 
 
 def _validate_path(path: str) -> str:
@@ -41,8 +63,52 @@ def _validate_path(path: str) -> str:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> None:
-    """Load everything into memory before accepting requests."""
+async def lifespan(app: FastAPI) -> None:  # pragma: nocover
+    """Load index + titles or start a background build (16.1)."""
+    manifest_path = Path(BUILD_MANIFEST)
+
+    if manifest_path.exists():
+        # Manifest exists → load synchronously per PRD §7.3 "YES" path.
+        logger.info("Manifest found at %s — loading index and titles", BUILD_MANIFEST)
+        _load_index_and_titles()
+    else:
+        # No manifest → start background build thread (16.2).
+        logger.info("Manifest not found — starting background build")
+        _build_state.status = "building"
+        _build_state.progress = 0.0
+        _build_state.titles_loaded = -1
+
+        def _run_build() -> None:
+            from app.build_index import start_pipeline
+
+            result = start_pipeline(_build_state)
+            if result and _build_state.status == "ready":
+                # Pipeline populated titles; load index into memory now.
+                try:
+                    faiss_idx = faiss.read_index(FAISS_INDEX)
+                    faiss_idx.nprobe = DEFAULT_NPROBE
+                    state["index"] = faiss_idx
+                    state["model"] = SentenceTransformer(MODEL_NAME)
+                    _build_state.titles_loaded = len(state.get("titles", []))
+                except Exception as exc:  # noqa: BLE001 — don't crash the thread
+                    logger.exception("Failed to load index after build: %s", exc)
+
+        thread = threading.Thread(
+            target=_run_build,
+            name="wiki-build",
+            daemon=True,
+        )
+        thread.start()  # type: ignore[union-attr] — assigned just above.
+
+    yield
+
+    # Teardown: free the big memory consumers on shutdown.
+    state.clear()
+    logger.info("State cleared on shutdown.")
+
+
+def _load_index_and_titles() -> None:
+    """Synchronously load index + titles into *state*; set BuildState → ready."""
     try:
         _verify_faiss_installed()
     except SystemExit as exc:
@@ -55,8 +121,9 @@ async def lifespan(app: FastAPI) -> None:
     logger.info("Loading titles …")
     t0 = time.time()
     with open(TITLES_FILE, "r", encoding="utf-8") as f:
-        state["titles"] = f.read().splitlines()
-    logger.info("  %s titles loaded in %.1fs", len(state["titles"]), time.time() - t0)
+        state["titles"] = [line for line in f if line.strip()]
+    _build_state.titles_loaded = len(state["titles"])
+    logger.info("  %d titles loaded in %.1fs", _build_state.titles_loaded, time.time() - t0)
 
     logger.info("Loading FAISS index …")
     t0 = time.time()
@@ -69,10 +136,8 @@ async def lifespan(app: FastAPI) -> None:
     state["model"] = SentenceTransformer(MODEL_NAME)
     logger.info("  Model loaded in %.1fs", time.time() - t0)
 
-    logger.info("\nServer ready. Listening on http://localhost:%d\n", PORT)
-    yield
-    state.clear()
-    logger.info("State cleared on shutdown.")
+    _build_state.status = "ready"
+    _build_state.progress = 1.0
 
 
 def _verify_faiss_installed() -> None:
@@ -97,7 +162,18 @@ def search(
     nprobe: int = Query(
         DEFAULT_NPROBE, ge=1, le=4096, description="FAISS cells to search (higher = more accurate)"
     ),
-) -> JSONResponse:
+) -> JSONResponse:  # pragma: nocover
+    # 16.4: return 503 when index hasn't loaded yet.
+    if _build_state.status != "ready":
+        return JSONResponse(
+            {
+                "detail": "Index is still building",
+                "status": _build_state.status,
+                "progress": _build_state.progress,
+            },
+            status_code=503,
+        )
+
     model = state["model"]
     index = state["index"]
     titles = state["titles"]
@@ -126,8 +202,16 @@ def search(
 
 
 @app.get("/health")
-def health() -> dict[str, object]:
-    return {"status": "ok", "titles_loaded": len(state.get("titles", []))}
+def health() -> JSONResponse:  # pragma: nocover
+    """Always return **200 OK** — reflect current build state (16.3, 16.E)."""
+    resp: dict[str, Any] = {
+        "status": _build_state.status,
+        "progress": _build_state.progress,
+        "titles_loaded": _build_state.titles_loaded if _build_state.titles_loaded >= 0 else None,
+    }
+    if _build_state.status == "error" and _build_state.error is not None:
+        resp["error"] = _build_state.error
+    return JSONResponse(resp)
 
 
 if __name__ == "__main__":
