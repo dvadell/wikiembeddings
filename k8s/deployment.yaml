@@ -14,6 +14,11 @@ spec:
       labels:
         app: wiki-search
     spec:
+      # ---------------------------------------------------------------
+      # NOTE (T18.1): No initContainers — this is a single-container,
+      #   self-initialising image (PRD §8.2). Build runs in a background
+      #   thread inside the same process; /health always returns 200 so
+      #   liveness never restarts a healthy-but-building pod.
       containers:
         - name: wiki-search
           image: ghcr.io/dvadell/wiki-search:latest
@@ -21,35 +26,10 @@ spec:
             - containerPort: 8000
               name: http
 
-          # ── Probes ────────────────────────────────────────────────
-          # Both probe /health — the same endpoint powers Docker HEALTHCHECK.
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-
-          # ── Resources ───────────────────────────────────────────────
-          requests:
-            cpu: "100m"
-            memory: "256Mi"
-          limits:
-            cpu: "500m"
-            memory: "1Gi"
-
-          # ── Config & secrets wired via envFrom (T8.4) + volume mounts (T8.6) ──
+          # ── Environment ───────────────────────────────────────────
+          env:
+            - name: BUILD_RESUME
+              value: "true"
           envFrom:
             - configMapRef:
                 name: wiki-search-config
@@ -57,7 +37,74 @@ spec:
             - name: wiki-data
               mountPath: /data
 
+          # ── Liveness probe (T18.2) ────────────────────────────────
+          # Policing crashes only — /health always returns 200 even
+          # while the index is building, so this will never restart a
+          # healthy pod that is simply still waiting on build.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # ── Readiness probe (T18.3) ───────────────────────────────
+          # Uses an exec probe with python + httpx to inspect the
+          # response *body* — httpGet cannot validate JSON content.
+          # The /health endpoint returns {"status":"ready"} when
+          # indexing is complete.  failureThreshold=600 × periodSeconds=60
+          # = 10 hours, which covers the worst-case build window.
+          readinessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import httpx, sys; r=httpx.get('http://localhost:8000/health'); sys.exit(0 if r.json().get('status')=='ready' else 1)"
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 600
+
+          # ── Resources (T18.4) ─────────────────────────────────────
+          # Build phase dominates memory/CPU — the embedding + FAISS
+          # index construction for a full Wikipedia dump can easily
+          # exceed 12 GiB of RAM.  Requests hold the node slot; limits
+          # cap eviction risk.
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "16Gi"
+            limits:
+              cpu: "2000m"
+              memory: "20Gi"
+
+      # ── Volumes ───────────────────────────────────────────────────
       volumes:
         - name: wiki-data
           persistentVolumeClaim:
             claimName: wiki-data
+
+---
+# ---------------------------------------------------------------
+#   Operator runbook (T18.6)
+# ---------------------------------------------------------------
+# Q: How do I force a full rebuild from scratch?
+# A:  kubectl delete pod -l app=wiki-search  (wait for it to restart)
+#     Then exec into the PVC and remove the manifest that marks the
+#     build as complete:
+#       kubectl exec -it <pvc-pod-name> -- rm /data/build_manifest.json
+#     The container will detect the missing manifest on next startup
+#     and run a full index build.
+#
+# Q: How do I watch build progress?
+# A:  kubectl logs -f <pod-name>
+#     The build-printer writes per-stage log lines with progress
+#     percentages (0–100 %) to stdout so you can tail in real time.
+#
+# Q: How long does a first-start build take?
+# A:  For the full English Wikipedia dump (~6 M titles): roughly 2–8 h
+#     depending on node storage performance (SSD recommended) and CPU.
+#     The synthetic corpus used by integration tests (~1 k titles) typically
+#     finishes in tens of seconds.
