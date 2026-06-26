@@ -117,8 +117,8 @@ class TestEmptyMemmapFallback:
 
         # Stub FAISS but *do not* write a manifest — so resume skips.
         stub_faiss = mock.MagicMock()
-        # write_index does nothing: no .tmp file, no manifest → build proceeds to actual indexing logic.
-        stub_faiss.write_index = mock.MagicMock()  # no-op; won't create any files.
+        # no-op write_index; won't create files, build proceeds to indexing
+        stub_faiss.write_index = mock.MagicMock()
 
         with mock.patch.dict("sys.modules", {"faiss": stub_faiss}):
             result = m.build_faiss_index(
@@ -132,6 +132,6 @@ class TestEmptyMemmapFallback:
                 progress_cb=mock.Mock(),
             )
 
-        # build_faiss_index should return empty dict (n_titles == 0 triggers early warning).
+        # n_titles == 0 → early warning path (not the fallback memmap).
         assert result == {}
         # We got here without a KeyError or IndexError — the fallback memmap path (311‑314) hit.

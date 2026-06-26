@@ -57,8 +57,9 @@ class TestNprobeFallbackLoadedViaModulePatch:
         try:
             mod.faiss = fake_faiss  # noqa: FBT003 — intentional patch; restores after.
 
-            wrapper = mod._load_faiss_index("/dev/null")                     # path ignored (patched read_index).
-            assert hasattr(wrapper, "nprobe"), "wrapper must have .nprobe"   # trigger property getter.
+            # patched: path arg ignored, read_index never called
+            wrapper = mod._load_faiss_index("/dev/null")
+            assert hasattr(wrapper, "nprobe"), "wrapper must have .nprobe"
 
         finally:
             mod.faiss = original_faiss  # restore original module reference.
@@ -81,13 +82,16 @@ class TestNprobeShimBehavior:
 
         mod.faiss = fake_faiss
         try:
-            wrapper = mod._load_faiss_index("/dev/null")              # exercise wrapper construction.
-            assert hasattr(wrapper, "nprobe")                           # trigger getter — hits property.
-            wrapper.nprobe = 128                                        # hit setter line ~173 of app/main.py.
-            assert wrapper.nprobe == 128                               # verify round-trip.
+            wrapper = mod._load_faiss_index("/dev/null")
+            assert hasattr(wrapper, "nprobe")
+            wrapper.nprobe = 128
+            assert wrapper.nprobe == 128
 
         finally:
-            mod.faiss = mod.__dict__.get("faiss") or mock.MagicMock()  # crude restore (module may be locked).
+            mod.faiss = (
+                mod.__dict__.get("faiss")
+                or mock.MagicMock()
+            )
 
     def test_wrapper_search_pads_short_results(self):
         """Shim pads with distance zeros and index offset-indices when ds.shape[1] < k."""
@@ -106,17 +110,18 @@ class TestNprobeShimBehavior:
             wrapper = mod._load_faiss_index("/dev/null")
 
             q = np.zeros((1, 384), dtype="float32")
-            ds_out, ix_out = wrapper.search(q, 4)                   # k=4 > inner provides 2.
+            ds_out, ix_out = wrapper.search(q, 4)
 
-            assert ds_out.shape[1] == 4                              # padded to requested k.
+            assert ds_out.shape[1] == 4
             assert ix_out.shape[1] == 4
 
             np.testing.assert_array_equal(ds_out[:, :2], [[-2.0, -1.0]])
             np.testing.assert_array_equal(ix_out[:, :2], [[5, 7]])
 
-            assert ds_out[0, 2] == 0.0                              # distance zero for padding.
+            # padding: distances zero, indices sequential from ~50+
+            assert ds_out[0, 2] == 0.0
             assert ds_out[0, 3] == 0.0
-            assert ix_out[0, 2] >= 50                                # sequential integer start at 50+.
+            assert ix_out[0, 2] >= 50
             assert ix_out[0, 3] >= 51
 
         finally:
