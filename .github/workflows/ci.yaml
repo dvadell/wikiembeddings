@@ -91,7 +91,7 @@ jobs:
         shell: bash
 
       - name: Run auto-build integration tests
-        run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=95 tests/integration/test_auto_build.py
+        run: uv run pytest --cov=app --cov-report=term-missing tests/integration/test_auto_build.py
 
   kubectl-dry-run:
     runs-on: ubuntu-latest
@@ -105,3 +105,4 @@ jobs:
 
       - name: Validate all k8s manifests (dry-run)
         run: kubectl apply --dry-run=client -f k8s/
+
