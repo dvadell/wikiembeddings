@@ -55,7 +55,7 @@ def _mock_state() -> "pytest.FixtureRequest":  # placeholder — BuildState crea
 class TestSuccessPath:
     def test_call_order_and_progress_and_final_state(self):
         """15.A + 15.B + 15.D: order, progress, ready, titles — one happy path."""
-        from app.build_index import BuildState, STAGE_RANGES, start_pipeline
+        from app.build_index import BuildState, start_pipeline
 
         state = BuildState()
         dl_stub = mock.MagicMock(return_value=3)
@@ -84,7 +84,7 @@ class TestSuccessPath:
 class TestProgressWithinRanges:
     def test_download_le_35_and_embedding_le_85(self):
         """Progress after each stage stays within its range."""
-        from app.build_index import BuildState, STAGE_RANGES, start_pipeline
+        from app.build_index import STAGE_RANGES, BuildState, start_pipeline
 
         state = BuildState()
         last_after_stage: dict[str, float] = {}
@@ -123,7 +123,7 @@ class TestProgressWithinRanges:
 class TestProgressMonotonic:
     def test_monotonic_increase_after_each_stage(self) -> None:
         """Progress values increase monotonically across stages."""
-        from app.build_index import BuildState, STAGE_RANGES, start_pipeline
+        from app.build_index import STAGE_RANGES, BuildState, start_pipeline
 
         state = BuildState()
 
