@@ -21,7 +21,7 @@ from unittest import mock
 
 import numpy as np
 
-import app.build_index as m
+import app.build.embedding as m
 
 # ── Helpers -------------------------------------------------------------------- #
 

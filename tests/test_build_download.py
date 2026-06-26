@@ -22,7 +22,7 @@ from unittest import mock
 
 import pytest
 
-import app.build_index as m
+from app.build import download as m
 
 # ------------------------------------------------------------------ #
 #  Helpers                                                               #
