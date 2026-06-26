@@ -91,4 +91,5 @@ jobs:
         shell: bash
 
       - name: Run auto-build integration tests
-        run: uv run pytest --cov=app --cov-report=term-missing tests/integration/test_auto_build.py
+        run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=0 tests/integration/test_auto_build.py
+

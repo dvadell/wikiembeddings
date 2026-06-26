@@ -276,6 +276,17 @@ def build_faiss_index(
     embeddings_path = Path(embeddings_path)
     titles_path = Path(titles_path)
 
+    # ── resume: check manifest before any file I/O ──────────────────── #
+    if resume and manifest_path.exists():
+        with manifest_path.open("r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        logger.info(
+            "Resuming: skipping FAISS build (manifest exists at %s)",
+            manifest_path,
+        )
+        progress_cb(1.0)
+        return manifest
+
     # ── load vectors from file ──────────────────────────────────────── #
     npy_magic = b"\x93NUMPY"  # magic bytes for numpy .npy format.
     with Path(embeddings_path).open("rb") as fh:
@@ -311,16 +322,7 @@ def build_faiss_index(
         progress_cb(1.0)
         return {}
 
-    # ── resume: check manifest ──────────────────────────────────────── #
-    if resume and manifest_path.exists():
-        with manifest_path.open("r", encoding="utf-8") as fh:
-            manifest = json.load(fh)
-        logger.info(
-            "Resuming: skipping FAISS build (manifest exists at %s)",
-            manifest_path,
-        )
-        progress_cb(1.0)
-        return manifest
+    # ── resume guard moved above, before any file I/O (T20.7) ──────────── #
 
     # ── train IVF quantizer on a random sample ──────────────────────── #
     rng = random.Random(42)  # deterministic sampling.
