@@ -92,3 +92,16 @@ jobs:
 
       - name: Run auto-build integration tests
         run: uv run pytest --cov=app --cov-report=term-missing --cov-fail-under=95 tests/integration/test_auto_build.py
+
+  kubectl-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kubectl
+        run: |
+          curl -sLO "https://storage.googleapis.com/kubernetes-release/release/v1.30.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+      - name: Validate all k8s manifests (dry-run)
+        run: kubectl apply --dry-run=client -f k8s/

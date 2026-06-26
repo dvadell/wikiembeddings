@@ -335,3 +335,142 @@ class TestAutoBuild:
             assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
             body = resp.json()
             assert "results" in body and len(body["results"]) >= 1
+
+
+# ─── SC7: BUILD_RESUME integration test ─────────────────────────────────── #
+
+
+class TestBuildResumeSkipsStages:
+    """SC7: BUILD_RESUME=true on a second start skips all completed stages in \u003c 10 s."""
+
+    def test_sc7_resume_download_skips_when_output_exists(self) -> None:
+        """download_titles returns immediately when the output file already exists."""
+        from app.build_index import download_titles
+
+        td = Path(tempfile.mkdtemp(prefix="wiki_t20_dl_"))
+        titles_file = td / "wiki_titles.txt"
+        titles_file.write_text("A\nB\nC\n", encoding="utf-8")
+
+        t0 = time.time()
+        count = download_titles(titles_file, "https://example.com/dump.gz", True, lambda _: None)
+        elapsed = time.time() - t0
+
+        assert count == 3
+        assert elapsed < 1.0, f"Download took {elapsed:.2f}s (expected ≈0 due to resume)"
+
+    def test_sc7_resume_embeddings_skips_when_output_exists(self) -> None:
+        """generate_embeddings returns immediately when embeddings + titles exist."""
+        from app.build_index import _count_titles_file, generate_embeddings
+
+        td = Path(tempfile.mkdtemp(prefix="wiki_t20_em_"))
+        titles_file = td / "wiki_titles.txt"
+        embeddings_file = td / "wiki_titles_embeddings.npy"
+        titles_file.write_text("A\nB\nC\nD\nE\n", encoding="utf-8")
+
+        # Write correct-size embeddings file (5 titles × 384 dim × 4 bytes).
+        embeddings_file.write_bytes(b"\x00" * (5 * 384 * 4))
+
+        t0 = time.time()
+        count = generate_embeddings(
+            titles_file, embeddings_file, "all-MiniLM-L6-v2", 512, True, lambda _: None
+        )
+        elapsed = time.time() - t0
+
+        assert count == _count_titles_file(titles_file)
+        assert elapsed < 1.0, f"Embeddings took {elapsed:.2f}s (expected ≈0 due to resume)"
+
+    def test_sc7_resume_faiss_skips_when_manifest_exists(self) -> None:
+        """build_faiss_index returns the manifest immediately when it already exists."""
+        import json
+
+        from app.build_index import build_faiss_index
+
+        td = Path(tempfile.mkdtemp(prefix="wiki_t20_faiss_"))
+        embed_file = td / "embeddings.npy"
+        titles_file = td / "wiki_titles.txt"
+        fake_index = td / "wiki_faiss.index"
+        manifest_file = td / "build_manifest.json"
+
+        # Write required files (empty — resume bypasses all file reads).
+        embed_file.touch()
+        titles_file.write_text("A\nB\nC\nD\nE\n", encoding="utf-8")
+
+        manifest = {
+            "built_at": "now",
+            "title_count": 5,
+            "model_name": "test",
+            "nlist": 10,
+            "embed_dim": 384,
+        }
+        manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+
+        t0 = time.time()
+        result = build_faiss_index(
+            embed_file, titles_file, fake_index, manifest_file, 10, 0.1, True, lambda _: None
+        )
+        elapsed = time.time() - t0
+
+        assert result == manifest
+        assert elapsed < 1.0, f"FAISS build took {elapsed:.2f}s (expected ≈0 due to resume)"
+
+    def test_sc7_start_pipeline_resume_skips_all_stages(self) -> None:
+        """start_pipeline with all artifacts present returns in \u003c 1 s.
+
+        All artifact paths must match the derived names used by start_pipeline:
+        - titles  → TITLES_FILE           (user-specified)
+        - embeddings → TITLES_FILE stem + "_embeddings.npy"
+        - index   → FAISS_INDEX           (user-specified)
+        - manifest → BUILD_MANIFEST       (user-specified)
+        """
+        from app.build_index import BuildState, start_pipeline
+
+        td = Path(tempfile.mkdtemp(prefix="wiki_t20_sp_"))
+        titles_file = td / "wiki_titles.txt"
+        embeddings_file = td / "wiki_titles_embeddings.npy"
+        index_file = td / "wiki_faiss.index"
+        manifest_file = td / "build_manifest.json"
+
+        # Write all artifacts with the exact names start_pipeline uses.
+        titles_text = "\n".join(f"title_{i}" for i in range(10)) + "\n"
+        titles_file.write_text(titles_text, encoding="utf-8")
+
+        n_titles = sum(1 for line in titles_text.splitlines() if line.strip())
+        embeddings_file.write_bytes(b"\x00" * (n_titles * 384 * 4))
+
+        # Write real FAISS index so lifecycle load later will work.
+        _write_ivf_index(td)
+
+        manifest = {
+            "built_at": "now",
+            "title_count": n_titles,
+            "model_name": "all-MiniLM-L6-v2",
+            "nlist": 10,
+            "embed_dim": 384,
+        }
+        import json
+
+        manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+
+        # Config with BUILD_RESUME=True (all outputs already exist → resume skips all).
+        cfg = {
+            "TITLES_FILE": str(titles_file),
+            "FAISS_INDEX": str(index_file),
+            "BUILD_MANIFEST": str(manifest_file),
+            "WIKI_DUMP_URL": "https://example.com/dump.gz",
+            "MODEL_NAME": "all-MiniLM-L6-v2",
+            "EMBED_DIM": 384,
+            "BUILD_BATCH_SIZE": 512,
+            "BUILD_NLIST": 10,
+            "BUILD_SAMPLE_FRAC": 0.1,
+            "BUILD_RESUME": True,
+        }
+
+        state = BuildState()
+        t0 = time.time()
+        result = start_pipeline(state, cfg)
+        elapsed = time.time() - t0
+
+        assert result is True
+        assert state.build_status == "ready"
+        assert state.build_progress == 1.0
+        assert elapsed < 1.0, f"start_pipeline took {elapsed:.2f}s (expected ≈0 with resume)"
