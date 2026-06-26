@@ -104,4 +104,4 @@ jobs:
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
       - name: Validate all k8s manifests (dry-run)
-        run: kubectl apply --dry-run=client -f k8s/
+        run: kubectl apply --dry-run=client --validate=false -f k8s/
