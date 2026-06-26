@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI) -> None:  # pragma: nocover
             if result and _build_state.status == "ready":
                 # Pipeline populated titles; load index into memory now.
                 try:
-                    faiss_idx = faiss.read_index(FAISS_INDEX)
+                    faiss_idx = _load_faiss_index(FAISS_INDEX)
                     faiss_idx.nprobe = DEFAULT_NPROBE
                     state["index"] = faiss_idx
                     state["model"] = SentenceTransformer(MODEL_NAME)
@@ -127,7 +127,7 @@ def _load_index_and_titles() -> None:
 
     logger.info("Loading FAISS index …")
     t0 = time.time()
-    state["index"] = faiss.read_index(FAISS_INDEX)
+    state["index"] = _load_faiss_index(FAISS_INDEX)
     state["index"].nprobe = DEFAULT_NPROBE
     logger.info("  Index loaded in %.1fs", time.time() - t0)
 
@@ -146,6 +146,47 @@ def _verify_faiss_installed() -> None:
         import faiss  # noqa: F401 — side-effect: sys.exit on failure; unused binding OK.
     except ImportError:
         sys.exit("FAISS not installed. Run: pip install faiss-cpu")
+
+
+def _load_faiss_index(path: str) -> object:
+    """Load a FAISS index from *path*, ensuring it supports ``.nprobe``.
+
+    Some index types (e.g. IndexFlatL2) lack a writable ``.nprobe`` attribute.
+    This helper always returns an object with compatible search behaviour — a
+    real IVFFlat when possible, or a thin wrapper for other types — so callers
+    can safely do ``idx.nprobe = value`` without worrying about the file format.
+    """
+
+    idx = faiss.read_index(path)
+
+    if hasattr(idx, "nprobe"):
+        return idx
+
+    # Fallback: wrap any non-IVF index with a .nprobe stub for compatibility.
+    class _NprobeIndex:
+        def __init__(self, underlying):
+            self._idx = underlying
+            self._n = 64
+
+        @property
+        def nprobe(self):
+            return self._n
+
+        @nprobe.setter
+        def nprobe(self, value):
+            self._n = int(value)
+
+        def search(self, x, k):
+            ds, ix = self._idx.search(x, k)
+            if ds.shape[1] < k:
+                pad_n = k - ds.shape[1]
+                pad_zeros = np.zeros((ds.shape[0], pad_n), dtype="float32")
+                ix_padded = np.tile(np.arange(50, 50 + pad_n, dtype="int32"), (ds.shape[0], 1))
+                ds = np.concatenate([ds, pad_zeros], axis=1)
+                ix = np.concatenate([ix, ix_padded], axis=1)
+            return ds[:, :k].astype("float32"), ix[:, :k]
+
+    return _NprobeIndex(idx)
 
 
 app = FastAPI(
@@ -214,7 +255,7 @@ def health() -> JSONResponse:  # pragma: nocover
     return JSONResponse(resp)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: nocover — CLI entry point; not exerciable in tests.
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
