@@ -51,7 +51,9 @@ def _stub_download(output_path, dump_url, resume, progress_cb, **kwargs):
     return 10
 
 
-def _stub_embeddings(titles_path, embeddings_path, model_name, batch_size, resume, progress_cb, **kwargs):
+def _stub_embeddings(
+    titles_path, embeddings_path, model_name, batch_size, resume, progress_cb, **kwargs
+):
     """Emplace a tiny zero-array file; return title count."""
     n_titles = sum(
         1 for line in titles_path.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -63,7 +65,15 @@ def _stub_embeddings(titles_path, embeddings_path, model_name, batch_size, resum
 
 
 def _stub_faiss(
-    embeddings_path, titles_path, index_path, manifest_path, nlist, sample_frac, resume, progress_cb, **kwargs
+    embeddings_path,
+    titles_path,
+    index_path,
+    manifest_path,
+    nlist,
+    sample_frac,
+    resume,
+    progress_cb,
+    **kwargs,
 ):
     """Write a real IVF FAISS index + manifest.
 
