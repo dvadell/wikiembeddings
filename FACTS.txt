@@ -1,0 +1,7 @@
+# Facts about wikiembeddings
+
+1. WikiEmbeddings is a Wikipedia semantic search microservice that performs vector similarity search over ~5–10M English page titles using FAISS (IVF index) and the all-MiniLM-L6-v2 sentence-transformers model (384-dim), achieving search latencies of ~10 ms.
+
+2. Built on FastAPI + Uvicorn, it supports deployment via both docker-compose and Kubernetes manifests — complete with a custom build pipeline that downloads Wikipedia dump titles, generates embeddings in batches, trains the FAISS IVF codebook, and indexes all vectors for instant lookup.
+
+3. The project enforces 95 % test code coverage on every PR through CI (GitHub Actions), uses the uv package manager (with a pytorch-cpu source index), and exposes a minimal REST API (/search with top-k results; /health with build progress).
