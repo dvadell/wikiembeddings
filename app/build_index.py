@@ -17,6 +17,7 @@ import os
 import random
 import urllib.request
 from dataclasses import dataclass, field
+from itertools import islice
 from pathlib import Path
 from types import SimpleNamespace as _SimpleNamespace
 from typing import Callable
@@ -39,6 +40,20 @@ def _count_titles_file(path: Path) -> int:
             if line.strip():
                 count += 1
     return count
+
+
+def _stream_titles_in_chunks(path: Path, chunk_size: int):
+    """Yield non-empty, stripped lines from *path* in batches of up to *chunk_size*.
+
+    Files are read lazily so only one batch lives in RAM at a time.
+    """
+    with path.open(encoding="utf-8") as fh:
+        cleaned_lines = (stripped for line in fh if (stripped := line.strip()))
+        while True:
+            chunk = list(islice(cleaned_lines, chunk_size))
+            if not chunk:
+                break
+            yield chunk
 
 
 def _load_model(model_name: str):  # pragma: nocover
@@ -188,36 +203,29 @@ def generate_embeddings(
         shape=(n_titles, embed_dim),
     )
 
-    # Read all titles upfront (we already counted them; batch_size only controls encode calls).
-    titles: list[str] = []
-    with titles_path.open(encoding="utf-8") as fh:
-        for line in fh:
-            stripped = line.strip()
-            if stripped:
-                titles.append(stripped)
-
+    # Stream titles in batches so we never hold the full file in RAM.
     num_batches = math.ceil(n_titles / max(int(batch_size), 1))
     progress_cb(0.0)
     batch_idx = 0
-    while (batch_begin := int(batch_idx * n_titles / num_batches if num_batches else 0)) < n_titles:
-        batch_end = min(int((batch_idx + 1) * n_titles / num_batches), n_titles)
+    offset = 0
 
+    for chunk in _stream_titles_in_chunks(titles_path, max(int(batch_size), 1)):
         embeddings = model.encode(  # pragma: nocover — _load_model stubbed in tests.
-            titles[batch_begin:batch_end],
+            chunk,
             normalize_embeddings=True,
             show_progress_bar=False,
         )
 
         n_in_batch = embeddings.shape[0]
-        memmap[batch_begin : batch_begin + n_in_batch] = embeddings
+        memmap[offset : offset + n_in_batch] = embeddings
 
-        progress = (batch_idx + 1) / max(num_batches, 1) if num_batches else 1.0
-        progress_cb(progress)
-        if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == num_batches:
-            logger.info("Embedding progress: %d / %d batches", batch_idx + 1, num_batches)
-
-        del embeddings
         batch_idx += 1
+        progress = batch_idx / max(num_batches, 1) if num_batches else 1.0
+        progress_cb(progress)
+        if batch_idx % 10 == 0 or batch_idx == num_batches:
+            logger.info("Embedding progress: %d / %d batches", batch_idx, num_batches)
+
+        offset += n_in_batch
 
     # Flush so on-disk data is consistent before downstream stages read it.
     memmap.flush()
