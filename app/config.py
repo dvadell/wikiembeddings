@@ -2,6 +2,11 @@
 
 import os
 
+# ── Application logging (T21.5) ────────────────────────────────────────
+
+# LOG_LEVEL env var: one of DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO").upper()
+
 # Name of the sentence-transformers model used to embed titles (e.g., 'all-MiniLM-L6-v2' on HF Hub)
 MODEL_NAME: str = os.environ.get("MODEL_NAME", "all-MiniLM-L6-v2")
 

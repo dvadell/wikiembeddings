@@ -29,6 +29,7 @@ from app.config import (
     DEFAULT_K,
     DEFAULT_NPROBE,
     FAISS_INDEX,
+    LOG_LEVEL,
     MODEL_NAME,
     PORT,
     TITLES_FILE,
@@ -36,6 +37,14 @@ from app.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── logging setup (T21.1–4: module level so output appears in `docker compose logs`) ─── #
+
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    stream=sys.stderr,
+)
 
 
 # ── global build state (16.A: always available to /health, /search) ──── #
@@ -258,5 +267,4 @@ def health() -> JSONResponse:  # pragma: nocover
 if __name__ == "__main__":  # pragma: nocover — CLI entry point; not exerciable in tests.
     import uvicorn
 
-    logging.basicConfig(level=logging.INFO)
     uvicorn.run(app, host="0.0.0.0", port=PORT, workers=WORKERS)
