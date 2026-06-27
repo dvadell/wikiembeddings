@@ -31,14 +31,14 @@ COPY app/ ./app/
 COPY wiki_faiss.index.stub /app/wiki_faiss.index
 COPY wiki_titles.txt.stub /app/wiki_titles.txt
 
+RUN useradd -m app && chown -R app:app /app
+
 # -----------------------------
 # Writable data directory for docker-compose named volume.
 # Docker copies image content into a named volume on first creation;
 # `/data` must be owned by `app` or the non-root USER cannot write.
 # -----------------------------
 RUN mkdir -p /data && chown app:app /data
-
-RUN useradd -m app && chown -R app:app /app
 
 USER app
 
