@@ -510,8 +510,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
         mprogress("faiss", 0.0)
         build_faiss_index(
             str(embeddings_path),
-            str(_cfg.BUILD_MANIFEST).removesuffix(".json") + "_titles.txt",
-            #   ^ workaround for T15: the stub path used as dummy titles ref.
+            str(_cfg.TITLES_FILE),
             Path(str(_cfg.FAISS_INDEX)),
             str(_cfg.BUILD_MANIFEST),
             int(_cfg.BUILD_NLIST),
