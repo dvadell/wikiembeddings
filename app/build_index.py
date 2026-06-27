@@ -14,7 +14,6 @@ import json
 import logging
 import math
 import os
-import random
 import urllib.request
 from dataclasses import dataclass, field
 from itertools import islice
@@ -263,7 +262,7 @@ def build_faiss_index(
     nlist:
         Number of IVF clusters for training (from :py:data:`app.config.BUILD_NLIST`).
     sample_frac:
-        Fraction of vectors randomly sampled (deterministically via seeded RNG) to
+        Fraction of vectors sequentially sampled via strided slicing (deterministic) to
         train the quantizer. The remainder are added with ``index.add()``.
     resume:
         When *True* and *manifest_path* already exists, skip training entirely.
@@ -302,7 +301,12 @@ def build_faiss_index(
 
     if header_magic == npy_magic:
         # File written via np.save() — preserves shape in header.
-        all_vectors = np.load(str(embeddings_path)).astype("float32")
+        # Memory-map instead of loading fully into RAM (T23.1); only cast
+        # to float32 when the dtype differs so we avoid a second copy
+        # (T23.2).
+        all_vectors = np.load(str(embeddings_path), mmap_mode="r")
+        if all_vectors.dtype != np.float32:
+            all_vectors = all_vectors.astype("float32")
     else:
         # Raw memmap file (stage 2): no shape metadata — reconstruct from
         # title count + file size.
@@ -332,11 +336,17 @@ def build_faiss_index(
 
     # ── resume guard moved above, before any file I/O (T20.7) ──────────── #
 
-    # ── train IVF quantizer on a random sample ──────────────────────── #
-    rng = random.Random(42)  # deterministic sampling.
+    # ── train IVF quantizer on a sequential stride sample (T23.3) ───── #
     n_sample = int(n_titles * sample_frac)
-    sample_indices = rng.sample(range(n_titles), min(n_sample, n_titles))
-    train_vectors = all_vectors[sample_indices].astype("float32")  # pragma: nocover
+    n_sample = min(n_sample, n_titles)
+
+    if n_sample > 0:
+        stride = max(1, n_titles // n_sample)
+        # Slicing with stride returns a view; copying it creates a contiguous
+        # C-array by reading the file sequentially rather than random access.
+        train_vectors = all_vectors[::stride][:n_sample].copy()
+    else:
+        train_vectors = np.empty((0, embed_dim), dtype="float32")
 
     logger.info(
         "Training IVF index (%d clusters from %d/%d vectors) …",
