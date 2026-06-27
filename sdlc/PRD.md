@@ -135,7 +135,7 @@ Always returns `200 OK` — even while the index is building. Reflects the curre
 | Model          | `all-MiniLM-L6-v2` (384-dim)   | Small footprint (~90 MB), fast inference, good quality for title lookup |
 | Index storage  | FAISS IVF4096 on disk           | Fast exact+approximate search at scale; single file portability |
 | Language       | Python 3.12                     | Rich ML tooling ecosystem; `sentence-transformers` is Python-first |
-| Title source   |  Official Wikipedia titles dump (ns0) | Official snapshot, updated monthly, plain-text title extraction |
+| Title source   | Official Wikipedia titles dump (ns0) | Official snapshot, updated monthly, plain-text title extraction |
 | Build execution | Background thread (not async)  | `sentence-transformers` and FAISS are CPU-bound and not async-friendly; `threading.Thread` runs them without blocking the event loop |
 
 ### 7.2 Constraints
@@ -188,6 +188,40 @@ Pipeline steps:
 
 If the container is restarted mid-build, the pipeline detects partially completed stages via `BUILD_RESUME=true`. It skips the download step if `wiki_titles.txt` already exists, and skips embedding if the mmap array size matches the expected shape.
 
+### 7.5 Application Logging
+
+All application log output must be routed through Python's standard `logging` framework so that log messages appear in `docker compose logs -f` and are captured by container orchestrators (Kubernetes, etc.).
+
+**Root cause:** Python's `logging` module does not emit any output by default unless a handler is configured. Without calling `logging.basicConfig()` (or an equivalent handler setup), all `logger.info()`, `logger.warning()`, and `logger.error()` calls are silently discarded.
+
+**Requirements:**
+
+- `logging.basicConfig()` must be called **exactly once** at application startup, before any logger is used. The recommended location is in `app/main.py` at module level (not inside `lifespan()`), so it fires before uvicorn starts.
+- Log level must be configurable via the `LOG_LEVEL` environment variable (default: `INFO`). Accepted values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+- Log format must include at minimum: timestamp, log level, logger name, and message. Recommended format: `%(asctime)s %(levelname)-8s %(name)s — %(message)s`.
+- All modules in the `app/` package use `logging.getLogger(__name__)` and never `print()` (already required by T1 acceptance criterion 1.C).
+- The build pipeline (`app/build_index.py`) logs stage transitions and progress milestones at `INFO` level, and any errors or warnings at the appropriate level.
+
+**Reference implementation** (add to `app/main.py` immediately after the import block):
+
+```python
+import logging
+import sys
+from app.config import LOG_LEVEL
+
+logging.basicConfig(
+    level=logging.getLevelName(LOG_LEVEL),
+    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    stream=sys.stderr,
+)
+```
+
+And in `app/config.py`:
+
+```python
+LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO").upper()
+```
+
 ## 8. Deployment Strategy
 
 ### 8.1 Docker Compose (Local Development)
@@ -204,7 +238,6 @@ If the container is restarted mid-build, the pipeline detects partially complete
 - **No init container** — the main container self-initializes on first start
 - **Liveness probe**: `/health` (always 200) — detects crashes
 - **Readiness probe**: custom check against `status == "ready"` in `/health` response — keeps the pod out of the load balancer until the index is loaded; generous `initialDelaySeconds` and `failureThreshold` to accommodate the build duration on first start
-- Pod resource limits accommodate both build phase (CPU/RAM heavy) and serve phase (lighter)
 - `BUILD_RESUME=true` set by default so pod restarts after a crash resume rather than restart the build from scratch
 
 ### 8.3 CI/CD (GitHub Actions)
@@ -234,6 +267,7 @@ All runtime configuration via environment variables with sensible defaults:
 | BUILD_SAMPLE_FRAC    | `0.1`                            | Fraction of vectors used to train the IVF quantizer |
 | BUILD_RESUME         | `true`                           | Skip completed build stages on restart (default true — safe for production) |
 | BUILD_MANIFEST       | `"build_manifest.json"`         | Sentinel file written on successful build completion |
+| LOG_LEVEL            | `"INFO"`                        | Python logging level name. Controls verbosity for the entire `app/` package. Set to `DEBUG` for local troubleshooting. |
 
 ## 10. Security Considerations
 
@@ -253,6 +287,7 @@ All runtime configuration via environment variables with sensible defaults:
 | SC6 | On first start with empty volume: build completes, `build_manifest.json` written, `/health` transitions to `{"status": "ready"}`, `/search` returns results | Achieved | End-to-end test with synthetic corpus |
 | SC7 | On restart mid-build: `BUILD_RESUME=true` resumes from last completed stage, does not restart from scratch | Achieved | Manual test — interrupt container, restart, verify stage-skip log messages |
 | SC8 | `/search` returns `503` with `{"status": "building", "progress": <float>}` while index is building | Achieved | Integration test asserting 503 before build completes |
+| SC9 | All `logger.info()` / `logger.warning()` / `logger.error()` calls in `app/` appear in `docker compose logs -f` output | Achieved | Manual verification: `docker compose logs -f` shows log lines during build and on each `/search` request |
 
 ## 12. Risks & Mitigation
 
@@ -264,6 +299,7 @@ All runtime configuration via environment variables with sensible defaults:
 | Build interrupted mid-run (pod eviction, OOM kill) | Medium | Medium | `BUILD_RESUME=true` by default; pipeline resumes from last completed stage on next start |
 | Wikipedia dump URL changes / unavailable | Low | Medium | `WIKI_DUMP_URL` env var allows pinning to a known-good URL or mirror |
 | Build writes corrupt index then crashes | Low | High | Builder writes to `*.tmp` files and atomically renames; a crash before rename leaves the previous good index (or no index) intact |
+| Log output silently discarded (no `basicConfig`) | High (pre-fix) | Medium | `logging.basicConfig()` called at module level in `app/main.py`; `LOG_LEVEL` env var controls verbosity; covered by T21 acceptance criteria |
 
 ## 13. Open Questions / Future Work
 
@@ -276,4 +312,4 @@ All runtime configuration via environment variables with sensible defaults:
 
 ---
 
-*Document version: 1.2 (2026-06-23) — Replaced two-container builder approach with single-image, background-thread auto-build on first start (Option A). Updated §2, §3 G5, §4 NG6, §5 architecture diagram, §6 /health and /search specs, §7.1–7.4, §8.1–8.2, §11 SC2/SC6–SC8, §12 risks.*
+*Document version: 1.3 (2026-06-27) — Added §7.5 Application Logging (logging.basicConfig() requirement, LOG_LEVEL env var), added LOG_LEVEL to §9 configuration table, added SC9 to §11 success criteria, added logging risk row to §12.*
