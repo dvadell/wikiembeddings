@@ -50,11 +50,14 @@ class TestConfigFromDict:
         ):
             state = _build_state
             # Patch generate_embeddings so it returns a valid count (avoid n2<=0 guard).
-            with mock.patch.object(
-                m,
-                "generate_embeddings",
-                return_value=10,  # valid count.
-            ), mock.patch.object(m, "build_faiss_index", return_value={}):
+            with (
+                mock.patch.object(
+                    m,
+                    "generate_embeddings",
+                    return_value=10,  # valid count.
+                ),
+                mock.patch.object(m, "build_faiss_index", return_value={}),
+            ):
                 result = m.start_pipeline(state, config=dummy_config)
 
         # Pipeline completed without raising KeyError on dict access → line 458 hit.
@@ -69,14 +72,17 @@ class TestZeroEmbeddingsGuard:
         import app.build_index as m
         from app.main import _build_state
 
-        with mock.patch.object(
-            m,
-            "download_titles",
-            return_value=10,  # pretend titles were downloaded.
-        ), mock.patch.object(
-            m,
-            "generate_embeddings",
-            return_value=0,  # but embeddings returned zero → hits line 500 guard.
+        with (
+            mock.patch.object(
+                m,
+                "download_titles",
+                return_value=10,  # pretend titles were downloaded.
+            ),
+            mock.patch.object(
+                m,
+                "generate_embeddings",
+                return_value=0,  # but embeddings returned zero → hits line 500 guard.
+            ),
         ):
             state = _build_state
             result = m.start_pipeline(state)
