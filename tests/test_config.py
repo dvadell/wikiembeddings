@@ -37,6 +37,7 @@ _CONFIG_DEFAULTS: dict[str, object] = {
     "DEFAULT_NPROBE": 64,
     "PORT": 8000,
     "WORKERS": 1,
+    "LOG_LEVEL": "INFO",
 }
 
 # Sentinel overrides for env-override tests.
@@ -49,6 +50,7 @@ _ENV_SENTINELS: dict[str, str] = {
     "DEFAULT_NPROBE": "128",
     "PORT": "9000",
     "WORKERS": "4",
+    "LOG_LEVEL": "DEBUG",
 }
 
 _ALL_VARS = list(_CONFIG_DEFAULTS)

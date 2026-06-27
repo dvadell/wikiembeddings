@@ -88,10 +88,7 @@ class TestNprobeShimBehavior:
             assert wrapper.nprobe == 128
 
         finally:
-            mod.faiss = (
-                mod.__dict__.get("faiss")
-                or mock.MagicMock()
-            )
+            mod.faiss = mod.__dict__.get("faiss") or mock.MagicMock()
 
     def test_wrapper_search_pads_short_results(self):
         """Shim pads with distance zeros and index offset-indices when ds.shape[1] < k."""
@@ -135,8 +132,8 @@ class TestIvfIndexReturnsDirectly:
         """Real-looking wrapped index → identity returned."""
         from app import main as mod
 
-        mock_idx = mock.MagicMock()                     # auto-creates .nprobe and everything.
-        mock_idx.nprobe = 64                            # simulate real IVF index having nprobe.
+        mock_idx = mock.MagicMock()  # auto-creates .nprobe and everything.
+        mock_idx.nprobe = 64  # simulate real IVF index having nprobe.
         scores = np.array([[-2.0, -1.0]], dtype="float32")
         indices = np.array([[10, 20]], dtype="int32")
         mock_idx.search.return_value = (scores, indices)
@@ -148,10 +145,10 @@ class TestIvfIndexReturnsDirectly:
         mod.faiss = fake_faiss
         try:
             result = mod._load_faiss_index("/dev/null")
-            assert result is mock_idx                     # no wrapper, identity preserved.
+            assert result is mock_idx  # no wrapper, identity preserved.
 
             q = np.zeros((1, 384), dtype="float32")
-            ds_out, ix_out = result.search(q, 2)                    # uses mock_idx directly.
+            ds_out, ix_out = result.search(q, 2)  # uses mock_idx directly.
 
             assert ds_out[0][0] == -2.0
             assert ix_out[0][0] == 10
