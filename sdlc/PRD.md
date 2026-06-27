@@ -133,7 +133,7 @@ Always returns `200 OK` — even while the index is building. Reflects the curre
 |----------------|---------------------------------|-----------|
 | Web framework  | FastAPI + uvicorn               | Modern, auto-generated OpenAPI docs, async support |
 | Model          | `all-MiniLM-L6-v2` (384-dim)   | Small footprint (~90 MB), fast inference, good quality for title lookup |
-| Index storage  | FAISS IVF4096 on disk           | Fast exact+approximate search at scale; single file portability |
+| Index storage  | FAISS IVF4096 or IVFSQ8 on disk  | Fast search; supports IVFFlat (exact) or IVFSQ8 (8-bit scalar quantized) for reduced memory footprint |
 | Language       | Python 3.12                     | Rich ML tooling ecosystem; `sentence-transformers` is Python-first |
 | Title source   | Official Wikipedia titles dump (ns0) | Official snapshot, updated monthly, plain-text title extraction |
 | Build execution | Background thread (not async)  | `sentence-transformers` and FAISS are CPU-bound and not async-friendly; `threading.Thread` runs them without blocking the event loop |
@@ -265,6 +265,7 @@ All runtime configuration via environment variables with sensible defaults:
 | BUILD_BATCH_SIZE     | `512`                            | Title embedding batch size during index build |
 | BUILD_NLIST          | `4096`                           | FAISS IVF `nlist` parameter (number of clusters) |
 | BUILD_SAMPLE_FRAC    | `0.1`                            | Fraction of vectors used to train the IVF quantizer |
+| FAISS_INDEX_TYPE     | `"IVFFlat"`                      | FAISS index type. Options: "IVFFlat" (exact vectors, more RAM) or "IVFSQ8" (8-bit Scalar Quantization, 4x less RAM) |
 | BUILD_RESUME         | `true`                           | Skip completed build stages on restart (default true — safe for production) |
 | BUILD_MANIFEST       | `"build_manifest.json"`         | Sentinel file written on successful build completion |
 | LOG_LEVEL            | `"INFO"`                        | Python logging level name. Controls verbosity for the entire `app/` package. Set to `DEBUG` for local troubleshooting. |
@@ -294,7 +295,7 @@ All runtime configuration via environment variables with sensible defaults:
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Readiness probe fails during long build | High | Low | Use `/health` for liveness (always 200) and a separate readiness check on `status == "ready"`; set generous `failureThreshold` |
-| Memory pressure during index build (full corpus) | High | High | Memory-mapped numpy array for embeddings; batch encode; document minimum RAM (≥16 GB recommended for build phase) |
+| Memory pressure during index build (full corpus) | High | High | Memory-mapped numpy array for embeddings; stream titles to avoid Python list overhead; sequential/stride training vector sampling; support configurable scalar quantization (IVFSQ8) |
 | Build thread crashes silently | Medium | High | `app.state.build_status = "error"` on exception; `/health` exposes the error message; liveness probe remains green (process is alive) but operators see the error |
 | Build interrupted mid-run (pod eviction, OOM kill) | Medium | Medium | `BUILD_RESUME=true` by default; pipeline resumes from last completed stage on next start |
 | Wikipedia dump URL changes / unavailable | Low | Medium | `WIKI_DUMP_URL` env var allows pinning to a known-good URL or mirror |
