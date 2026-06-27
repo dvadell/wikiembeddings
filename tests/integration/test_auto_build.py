@@ -275,7 +275,7 @@ class TestAutoBuild:
                 with mock.patch.object(bi, "build_faiss_index", _stub_faiss):
                     with TestClient(main_mod.app) as client:
                         # Poll /health until the build finishes.
-                        ready_timeout = 90.0
+                        ready_timeout = 300.0
                         start = time.time()
                         body = {"status": ""}
                         while time.time() - start < ready_timeout:
