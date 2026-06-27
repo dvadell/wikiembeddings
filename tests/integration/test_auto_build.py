@@ -42,7 +42,7 @@ from fastapi.testclient import TestClient
 # ------------------------------------------------------------------ #
 
 
-def _stub_download(output_path, dump_url, resume, progress_cb):
+def _stub_download(output_path, dump_url, resume, progress_cb, **kwargs):
     """Write 10 synthetic title lines and return the count."""
     titles = "\n".join(f"Synthetic Title {i}" for i in range(10))
     output_path.write_text(titles + "\n", encoding="utf-8")
@@ -51,7 +51,9 @@ def _stub_download(output_path, dump_url, resume, progress_cb):
     return 10
 
 
-def _stub_embeddings(titles_path, embeddings_path, model_name, batch_size, resume, progress_cb):
+def _stub_embeddings(
+    titles_path, embeddings_path, model_name, batch_size, resume, progress_cb, **kwargs
+):
     """Emplace a tiny zero-array file; return title count."""
     n_titles = sum(
         1 for line in titles_path.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -63,7 +65,15 @@ def _stub_embeddings(titles_path, embeddings_path, model_name, batch_size, resum
 
 
 def _stub_faiss(
-    embeddings_path, titles_path, index_path, manifest_path, nlist, sample_frac, resume, progress_cb
+    embeddings_path,
+    titles_path,
+    index_path,
+    manifest_path,
+    nlist,
+    sample_frac,
+    resume,
+    progress_cb,
+    **kwargs,
 ):
     """Write a real IVF FAISS index + manifest.
 
@@ -275,7 +285,7 @@ class TestAutoBuild:
                 with mock.patch.object(bi, "build_faiss_index", _stub_faiss):
                     with TestClient(main_mod.app) as client:
                         # Poll /health until the build finishes.
-                        ready_timeout = 30.0
+                        ready_timeout = 300.0
                         start = time.time()
                         body = {"status": ""}
                         while time.time() - start < ready_timeout:

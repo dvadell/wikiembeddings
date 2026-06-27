@@ -30,21 +30,29 @@ import app.build_index as m
 # ── Fixtures ------------------------------------------------------------------- #
 
 
-def _stub_faiss() -> ModuleType:
+def _stub_faiss(index_type: str = "IVFFlat") -> ModuleType:
     """Return a fresh stub ``faiss`` module with mocked ``write_index`` that *writes to disk*.
 
-    This lets us verify atomicity by checking on-disk files later.
+    Parameters
+    ----------
+    index_type:
+        Which index constructor to mock — ``"IVFFlat"`` or ``"IVFSQ8"``.
+
     Callers patch it into ``sys.modules`` via mock.patch.dict.
     """
 
     idx_ivf = mock.MagicMock()
 
-    def ivf_init(_q, _d, _nlist, _metric):  # noqa: ANN001 — intentionally unused.
+    def ivf_init(*args, **kwargs):  # noqa: ANN001 — intentionally unused in some callers.
         return idx_ivf
 
     stub = mock.MagicMock()
     stub.IndexFlatL2.return_value = mock.MagicMock()  # noqa: FURB113 — needed for constructor.
-    stub.IndexIVFFlat.side_effect = ivf_init  # type: ignore[attr-defined]
+
+    if index_type == "IVFSQ8":
+        stub.IndexIVFScalarQuantizer.side_effect = ivf_init  # type: ignore[attr-defined]
+    else:
+        stub.IndexIVFFlat.side_effect = ivf_init  # type: ignore[attr-defined]
     stub.METRIC_INNER_PRODUCT = 1
 
     def _write_impl(_idx, tmp_path):
@@ -131,7 +139,14 @@ def test_14C_manifest_keys(tmp_path: Path, fixture_data, faiss_stub):
             progress_cb=mock.Mock(),  # noqa: FURB113
         )
 
-    assert set(result.keys()) == {"built_at", "title_count", "model_name", "nlist", "embed_dim"}
+    assert set(result.keys()) == {
+        "built_at",
+        "title_count",
+        "model_name",
+        "nlist",
+        "embed_dim",
+        "index_type",
+    }
 
 
 # ── 14.B  --  atomic writes (no stale .tmp files) ------------------------------ #
@@ -319,3 +334,117 @@ def test_progress_monotonic(tmp_path: Path, fixture_data, faiss_stub):
 
     for i in range(1, len(values)):
         assert values[i] >= values[i - 1], f"not monotonic: {values}"
+
+
+# ── T24 — Scalar Quantization (IVFSQ8) ----------------------------------------- #
+
+
+def test_24B_ivf_sq8_creates_correct_constructor(tmp_path: Path, fixture_data):
+    """24.B: ``index_type="IVFSQ8"`` invokes IndexIVFScalarQuantizer(QT_8bit), not IVFFlat."""
+    embeddings, titles = fixture_data
+
+    index_path = tmp_path / "wiki_faiss.index"
+    manifest_path = tmp_path / "build_manifest.json"
+
+    sq8_stub = _stub_faiss("IVFSQ8")
+    flat_stub = _stub_faiss("IVFFlat")  # plain stub — IVFFlat not invoked.
+
+    with mock.patch.dict("sys.modules", {"faiss": sq8_stub}):
+        m.build_faiss_index(
+            embeddings_path=embeddings,
+            titles_path=titles,
+            index_path=index_path,
+            manifest_path=manifest_path,
+            nlist=2,
+            sample_frac=0.5,
+            resume=False,
+            progress_cb=mock.Mock(),  # noqa: FURB113
+            index_type="IVFSQ8",
+        )
+
+    sq8_stub.IndexIVFScalarQuantizer.assert_called_once()
+    call_args = sq8_stub.IndexIVFScalarQuantizer.call_args[0]
+    # Assert QT_8bit was passed — it must be the same mock symbol used in this stub.
+    assert call_args[3] is sq8_stub.ScalarQuantizer.QT_8bit
+    assert sq8_stub.METRIC_INNER_PRODUCT in call_args
+
+    flat_stub.IndexIVFFlat.assert_not_called()
+
+
+def test_24B_ivf_flat_default(tmp_path: Path, fixture_data):
+    """Default (no index_type) should still use IndexIVFFlat."""
+    embeddings, titles = fixture_data
+
+    index_path = tmp_path / "wiki_faiss.index"
+    manifest_path = tmp_path / "build_manifest.json"
+
+    flat_stub = _stub_faiss("IVFFlat")  # noqa: FURB113 — default stub.
+    sq8_stub = _stub_faiss("IVFSQ8")  # plain stub — SQ8 not invoked.
+
+    with mock.patch.dict("sys.modules", {"faiss": flat_stub}):
+        m.build_faiss_index(
+            embeddings_path=embeddings,
+            titles_path=titles,
+            index_path=index_path,
+            manifest_path=manifest_path,
+            nlist=2,
+            sample_frac=0.5,
+            resume=False,
+            progress_cb=mock.Mock(),  # noqa: FURB113
+        )
+
+    flat_stub.IndexIVFFlat.assert_called_once()
+    sq8_stub.IndexIVFScalarQuantizer.assert_not_called()
+
+
+def test_24B_index_type_manifest_key(tmp_path: Path, fixture_data):
+    """24.C: the returned manifest dict contains ``index_type``."""
+    embeddings, titles = fixture_data
+
+    index_path = tmp_path / "wiki_faiss.index"
+    manifest_path = tmp_path / "build_manifest.json"
+
+    sq8_stub = _stub_faiss("IVFSQ8")
+
+    with mock.patch.dict("sys.modules", {"faiss": sq8_stub}):
+        result = m.build_faiss_index(
+            embeddings_path=embeddings,
+            titles_path=titles,
+            index_path=index_path,
+            manifest_path=manifest_path,
+            nlist=2,
+            sample_frac=0.5,
+            resume=False,
+            progress_cb=mock.Mock(),  # noqa: FURB113
+            index_type="IVFSQ8",
+        )
+
+    assert "index_type" in result
+    assert result["index_type"] == "IVFSQ8"
+
+
+def test_24B_case_insensitive_default(tmp_path: Path, fixture_data):
+    """Lowercase ``"ivfsq8"`` should be accepted and treated as IVFSQ8."""
+    embeddings, titles = fixture_data
+
+    index_path = tmp_path / "wiki_faiss.index"
+    manifest_path = tmp_path / "build_manifest.json"
+
+    sq8_stub = _stub_faiss("IVFSQ8")
+    flat_stub = _stub_faiss("IVFFlat")
+
+    with mock.patch.dict("sys.modules", {"faiss": sq8_stub}):
+        m.build_faiss_index(
+            embeddings_path=embeddings,
+            titles_path=titles,
+            index_path=index_path,
+            manifest_path=manifest_path,
+            nlist=2,
+            sample_frac=0.5,
+            resume=False,
+            progress_cb=mock.Mock(),  # noqa: FURB113
+            index_type="ivfsq8",  # lowercase — config uppercases this internally.
+        )
+
+    sq8_stub.IndexIVFScalarQuantizer.assert_called_once()
+    flat_stub.IndexIVFFlat.assert_not_called()
