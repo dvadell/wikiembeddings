@@ -27,11 +27,20 @@ _INT_VARS = (
     "WORKERS",
 )
 
+_STRING_VARS = (
+    "MODEL_NAME",
+    "FAISS_INDEX",
+    "FAISS_INDEX_TYPE",
+    "TITLES_FILE",
+    "LOG_LEVEL",
+)
+
 # Every PRD §9 variable with its documented default.
 _CONFIG_DEFAULTS: dict[str, object] = {
     "MODEL_NAME": "all-MiniLM-L6-v2",
     "EMBED_DIM": 384,
     "FAISS_INDEX": "wiki_faiss.index",
+    "FAISS_INDEX_TYPE": "IVFFLAT",
     "TITLES_FILE": "wiki_titles.txt",
     "DEFAULT_K": 5,
     "DEFAULT_NPROBE": 64,
@@ -52,6 +61,10 @@ _ENV_SENTINELS: dict[str, str] = {
     "WORKERS": "4",
     "LOG_LEVEL": "DEBUG",
 }
+
+# Vars whose env value is uppercased by config — raw sentinel in _ENV_SENTINELS,
+# but we compare against the uppered version.
+_UPPER_VARS = frozenset({"FAISS_INDEX_TYPE"})
 
 _ALL_VARS = list(_CONFIG_DEFAULTS)
 
@@ -112,6 +125,9 @@ class TestConfigEnvOverride:
         try:
             if var in _INT_VARS:
                 assert getattr(cfg, var) == int(sentinel)
+            elif var in _UPPER_VARS:
+                # Config uppercases these; compare with the uppered sentinel.
+                assert getattr(cfg, var) == sentinel.upper()
             else:
                 assert getattr(cfg, var) == sentinel
         finally:
