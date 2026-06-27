@@ -74,7 +74,7 @@ def _override_config_paths(monkeypatch, tmp_data_dir: Path):
     tmp_manifest = str(tmp_data_dir / "build_manifest.json")
     Path(tmp_manifest).write_text(
         '{"built_at": "now", "title_count": 3, "model_name": "all-MiniLM-L6-v2",'
-        '"nlist": 4096, "embed_dim": 384}',
+        ' "nlist": 4096, "embed_dim": 384, "index_type": "IVFFlat"}',
         encoding="utf-8",
     )
 
