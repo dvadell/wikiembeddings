@@ -14,6 +14,7 @@ import json
 import logging
 import math
 import os
+import threading
 import urllib.request
 from dataclasses import dataclass, field
 from itertools import islice
@@ -495,9 +496,13 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
         start, end = _STAGE_RANGES[range_name]
         state.build_progress = start + (end - start) * value
         pct = int(state.build_progress * 100)
+        logger.info(
+            "[%s] DMV state id=%s value=%r", threading.current_thread().name, id(state), state
+        )
         logger.info("[pipe] %-12s  %-9.4f  → %3d%% overall", range_name, value, pct)
 
     # ── Stage 1: download Titles (0 → .35) ──────────────────────────── #
+    logger.info("[%s] DMV state id=%s value=%r", threading.current_thread().name, id(state), state)
     state.build_status = "building"
     state.build_error = None
     logger.info("[pipe] START stage=download total_titles_path=%s", _cfg.TITLES_FILE)
@@ -520,7 +525,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
 
     # ── Stage 2: generate Embeddings (.35 → .85) ─────────────────────
     state.build_status = "embedding"
-    logger.info(id(state))
+    logger.info("[%s] DMV state id=%s value=%r", threading.current_thread().name, id(state), state)
     logger.info("[pipe] START stage=embedding")
     try:
         _stem = str(Path(str(_cfg.TITLES_FILE)).with_suffix(""))
@@ -544,6 +549,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
 
     # ── Stage 3: FAISS index (.85 → .98) ─────────────────────────────
     state.build_status = "indexing_faiss"
+    logger.info("[%s] DMV state id=%s value=%r", threading.current_thread().name, id(state), state)
     logger.info("[pipe] START stage=faiss")
     try:
         mprogress("faiss", 0.0)

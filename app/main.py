@@ -54,7 +54,7 @@ logging.basicConfig(
 class BuildState:
     """Mutable state shared between the build thread and API handlers."""
 
-    status: str = "building"  # "building" | "ready" | "error"
+    status: str = "starting..."  # "building" | "ready" | "error"
     progress: float = 0.0  # 0.0–1.0 updated by each build stage
     titles_loaded: int = field(default=-1, repr=False)  # -1 until known
     error: str | None = None  # set on unhandled exception
@@ -62,7 +62,9 @@ class BuildState:
 
 state: dict[str, Any] = {}
 _build_state: BuildState = BuildState()
-logger.info(id(_build_state))
+logger.info(
+    "[%s] DMV state id=%s value=%r", threading.current_thread().name, id(_build_state), _build_state
+)
 
 
 def _validate_path(path: str) -> str:
@@ -100,7 +102,12 @@ async def lifespan(app: FastAPI) -> None:  # pragma: nocover
             from app.build_index import start_pipeline
 
             logger.info("[thread] pipeline starting …")
-            logger.info(id(_build_state))
+            logger.info(
+                "[%s] DMV state id=%s value=%r",
+                threading.current_thread().name,
+                id(_build_state),
+                _build_state,
+            )
             result = start_pipeline(_build_state)
             logger.info(
                 "[thread] start_pipeline returned %s — status=%s progress=%.2f error=%s",
@@ -181,6 +188,12 @@ def _load_index_and_titles() -> None:
 
     _build_state.status = "ready"
     _build_state.progress = 1.0
+    logger.info(
+        "[%s] DMV state id=%s value=%r",
+        threading.current_thread().name,
+        id(_build_state),
+        _build_state,
+    )
     logger.info("[load] === status=ready progress=1.0 ===")
 
 
@@ -250,6 +263,12 @@ def search(
 ) -> JSONResponse:  # pragma: nocover
     # 16.4: return 503 when index hasn't loaded yet.
     if _build_state.status != "ready":
+        logger.info(
+            "[%s] DMV state id=%s value=%r",
+            threading.current_thread().name,
+            id(_build_state),
+            _build_state,
+        )
         return JSONResponse(
             {
                 "detail": "Index is still building",
@@ -296,6 +315,12 @@ def health() -> JSONResponse:  # pragma: nocover
     }
     if _build_state.status == "error" and _build_state.error is not None:
         resp["error"] = _build_state.error
+    logger.info(
+        "[%s] DMV state id=%s value=%r",
+        threading.current_thread().name,
+        id(_build_state),
+        _build_state,
+    )
     return JSONResponse(resp)
 
 
