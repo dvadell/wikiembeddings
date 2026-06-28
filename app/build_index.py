@@ -520,6 +520,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
 
     # ── Stage 2: generate Embeddings (.35 → .85) ─────────────────────
     state.build_status = "embedding"
+    logger.info(id(state))
     logger.info("[pipe] START stage=embedding")
     try:
         _stem = str(Path(str(_cfg.TITLES_FILE)).with_suffix(""))

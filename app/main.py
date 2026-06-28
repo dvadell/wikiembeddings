@@ -62,6 +62,7 @@ class BuildState:
 
 state: dict[str, Any] = {}
 _build_state: BuildState = BuildState()
+logger.info(id(_build_state))
 
 
 def _validate_path(path: str) -> str:
@@ -89,7 +90,8 @@ async def lifespan(app: FastAPI) -> None:  # pragma: nocover
         )
     else:
         # No manifest → start background build thread (16.2).
-        logger.info("[startup] no manifest — starting background build")
+        ts = time.time()
+        logger.info("[startup] no manifest — starting background build at epoch=%.4f", ts)
         _build_state.status = "building"
         _build_state.progress = 0.0
         _build_state.titles_loaded = -1
@@ -98,15 +100,16 @@ async def lifespan(app: FastAPI) -> None:  # pragma: nocover
             from app.build_index import start_pipeline
 
             logger.info("[thread] pipeline starting …")
+            logger.info(id(_build_state))
             result = start_pipeline(_build_state)
             logger.info(
-                "[thread] start_pipeline returned %s — state.status=%s progress=%.2f",
+                "[thread] start_pipeline returned %s — status=%s progress=%.2f error=%s",
                 result,
                 _build_state.status,
                 _build_state.progress,
+                _build_state.error,
             )
             if result and _build_state.status == "ready":
-                # Pipeline populated titles; load index into memory now.
                 try:
                     logger.info("[thread] loading FAISS index from %s …", FAISS_INDEX)
                     faiss_idx = _load_faiss_index(FAISS_INDEX)
@@ -117,13 +120,11 @@ async def lifespan(app: FastAPI) -> None:  # pragma: nocover
                     logger.info(
                         "[thread] index/model loaded — titles_loaded=%s", _build_state.titles_loaded
                     )
-                except Exception as exc:  # noqa: BLE001 — don't crash the thread
+                except Exception as exc:
                     logger.exception("[thread] failed to load index after build: %s", exc)
             else:
                 logger.warning(
-                    "[thread] skipped post-build index/model: result=%s status=%s",
-                    result,
-                    _build_state.status,
+                    "[thread] skipped post-build: result=%s status=%s", result, _build_state.status
                 )
                 if _build_state.error:
                     logger.warning("[thread] error from pipeline: %s", _build_state.error)
