@@ -494,12 +494,8 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
     def mprogress(range_name: str, value: float) -> None:
         start, end = _STAGE_RANGES[range_name]
         state.build_progress = start + (end - start) * value
-        logger.info(
-            "[pipe] %-12s %.4f → %%.1f%% overall",
-            range_name,
-            value,
-            int(state.build_progress * 100),
-        )
+        pct = int(state.build_progress * 100)
+        logger.info("[pipe] %-12s  %-9.4f  → %3d%% overall", range_name, value, pct)
 
     # ── Stage 1: download Titles (0 → .35) ──────────────────────────── #
     state.build_status = "building"
