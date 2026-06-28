@@ -245,6 +245,7 @@ def build_faiss_index(
     sample_frac: float,
     resume: bool,
     progress_cb: Callable[[float], None],
+    index_type: str = "IVFFlat",
 ) -> dict:
     """Train a FAISS IVF index on the embeddings produced by stage 2.
 
@@ -268,6 +269,9 @@ def build_faiss_index(
         When *True* and *manifest_path* already exists, skip training entirely.
     progress_cb:
         Callback invoked with floats 0.0-1.0 to report stage progress.
+    index_type:
+        FAISS IVF index type — ``"IVFFlat"`` (default) or ``"IVFSQ8"``
+        (8-bit scalar quantization, ~4× less RAM).
 
     Returns
     -------
@@ -357,9 +361,19 @@ def build_faiss_index(
     progress_cb(0.0)
 
     quantizer = faiss.IndexFlatL2(embed_dim)  # pragma: nocover
-    index = faiss.IndexIVFFlat(  # pragma: nocover
-        quantizer, embed_dim, int(nlist), faiss.METRIC_INNER_PRODUCT
-    )
+    index_type_upper = index_type.upper() if index_type else "IVFFLAT"  # noqa: FURB113 — case-insensitive.
+    if index_type_upper == "IVFSQ8":
+        index = faiss.IndexIVFScalarQuantizer(  # pragma: nocover
+            quantizer,
+            embed_dim,
+            int(nlist),
+            faiss.ScalarQuantizer.QT_8bit,
+            faiss.METRIC_INNER_PRODUCT,
+        )
+    else:
+        index = faiss.IndexIVFFlat(  # pragma: nocover
+            quantizer, embed_dim, int(nlist), faiss.METRIC_INNER_PRODUCT
+        )
     index.train(train_vectors)  # pragma: nocover
 
     progress_cb(0.05)  # quantizer training done — moving on to add phase.
@@ -391,6 +405,7 @@ def build_faiss_index(
         "model_name": "?",  # fill in before any code reads it (caller in run() does this).
         "nlist": int(nlist),
         "embed_dim": int(embed_dim),
+        "index_type": str(index_type),  # FAISS index type used for building.
     }
 
     manifest_tmp = Path(str(manifest_path) + ".tmp")  # pragma: nocover
@@ -544,6 +559,9 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
             float(_cfg.BUILD_SAMPLE_FRAC),
             bool(_cfg.BUILD_RESUME),
             lambda v: mprogress("faiss", v),
+            index_type=str(
+                getattr(_cfg, "FAISS_INDEX_TYPE", "IVFFlat")
+            ),  # pass config index type (T24)
         )
     except BaseException as exc:  # noqa: BLE001
         state.build_status = "error"

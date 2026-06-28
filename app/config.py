@@ -17,6 +17,10 @@ EMBED_DIM: int = int(os.environ.get("EMBED_DIM", "384"))
 # Filename or path of the FAISS IVF index file on disk (loaded at startup into memory)
 FAISS_INDEX: str = os.environ.get("FAISS_INDEX", "wiki_faiss.index")
 
+# FAISS index type: "IVFFlat" (exact vectors, more RAM) or
+# "IVFSQ8" (8-bit scalar quantization, 4x less RAM).
+FAISS_INDEX_TYPE: str = os.environ.get("FAISS_INDEX_TYPE", "IVFFlat").upper()
+
 # Filename or path of the Wikipedia titles list file (one title per line; loaded at startup)
 TITLES_FILE: str = os.environ.get("TITLES_FILE", "wiki_titles.txt")
 
