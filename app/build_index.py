@@ -479,10 +479,17 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
     def mprogress(range_name: str, value: float) -> None:
         start, end = _STAGE_RANGES[range_name]
         state.build_progress = start + (end - start) * value
+        logger.info(
+            "[pipe] %-12s %.4f → %%.1f%% overall",
+            range_name,
+            value,
+            int(state.build_progress * 100),
+        )
 
     # ── Stage 1: download Titles (0 → .35) ──────────────────────────── #
     state.build_status = "building"
     state.build_error = None
+    logger.info("[pipe] START stage=download total_titles_path=%s", _cfg.TITLES_FILE)
     try:
         mprogress("download", 0.0)
         n = download_titles(
@@ -502,6 +509,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
 
     # ── Stage 2: generate Embeddings (.35 → .85) ─────────────────────
     state.build_status = "embedding"
+    logger.info("[pipe] START stage=embedding")
     try:
         _stem = str(Path(str(_cfg.TITLES_FILE)).with_suffix(""))
         embeddings_path = Path(_stem + "_embeddings.npy")
@@ -524,6 +532,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
 
     # ── Stage 3: FAISS index (.85 → .98) ─────────────────────────────
     state.build_status = "indexing_faiss"
+    logger.info("[pipe] START stage=faiss")
     try:
         mprogress("faiss", 0.0)
         build_faiss_index(
@@ -545,7 +554,7 @@ def start_pipeline(state: BuildState, config=None) -> bool:  # noqa: ANN001
     # ── all stages succeed ──────────────────────────────────────────── #
     state.build_status = "ready"
     state.build_progress = 1.0
-    logger.info("Build complete — index at %s", _cfg.FAISS_INDEX)
+    logger.info("[pipe] ALL DONE status=ready progress=1.0 (index=%s)", _cfg.FAISS_INDEX)
     return True
 
 

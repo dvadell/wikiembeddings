@@ -75,14 +75,21 @@ def _validate_path(path: str) -> str:
 async def lifespan(app: FastAPI) -> None:  # pragma: nocover
     """Load index + titles or start a background build (16.1)."""
     manifest_path = Path(BUILD_MANIFEST)
+    logger.info("[startup] manifest=%s exists=%s", BUILD_MANIFEST, manifest_path.exists())
 
     if manifest_path.exists():
         # Manifest exists → load synchronously per PRD §7.3 "YES" path.
-        logger.info("Manifest found at %s — loading index and titles", BUILD_MANIFEST)
+        logger.info("[startup] loading index and titles synchronously …")
         _load_index_and_titles()
+        logger.info(
+            "[startup] sync load done — status=%s progress=%.2f titles_loaded=%s",
+            _build_state.status,
+            _build_state.progress,
+            _build_state.titles_loaded,
+        )
     else:
         # No manifest → start background build thread (16.2).
-        logger.info("Manifest not found — starting background build")
+        logger.info("[startup] no manifest — starting background build")
         _build_state.status = "building"
         _build_state.progress = 0.0
         _build_state.titles_loaded = -1
@@ -90,17 +97,36 @@ async def lifespan(app: FastAPI) -> None:  # pragma: nocover
         def _run_build() -> None:
             from app.build_index import start_pipeline
 
+            logger.info("[thread] pipeline starting …")
             result = start_pipeline(_build_state)
+            logger.info(
+                "[thread] start_pipeline returned %s — state.status=%s progress=%.2f",
+                result,
+                _build_state.status,
+                _build_state.progress,
+            )
             if result and _build_state.status == "ready":
                 # Pipeline populated titles; load index into memory now.
                 try:
+                    logger.info("[thread] loading FAISS index from %s …", FAISS_INDEX)
                     faiss_idx = _load_faiss_index(FAISS_INDEX)
                     faiss_idx.nprobe = DEFAULT_NPROBE
                     state["index"] = faiss_idx
                     state["model"] = SentenceTransformer(MODEL_NAME)
                     _build_state.titles_loaded = len(state.get("titles", []))
+                    logger.info(
+                        "[thread] index/model loaded — titles_loaded=%s", _build_state.titles_loaded
+                    )
                 except Exception as exc:  # noqa: BLE001 — don't crash the thread
-                    logger.exception("Failed to load index after build: %s", exc)
+                    logger.exception("[thread] failed to load index after build: %s", exc)
+            else:
+                logger.warning(
+                    "[thread] skipped post-build index/model: result=%s status=%s",
+                    result,
+                    _build_state.status,
+                )
+                if _build_state.error:
+                    logger.warning("[thread] error from pipeline: %s", _build_state.error)
 
         thread = threading.Thread(
             target=_run_build,
@@ -119,34 +145,42 @@ async def lifespan(app: FastAPI) -> None:  # pragma: nocover
 def _load_index_and_titles() -> None:
     """Synchronously load index + titles into *state*; set BuildState → ready."""
     try:
+        logger.info("[load] verifying faiss install …")
         _verify_faiss_installed()
     except SystemExit as exc:
-        logger.error("Startup failed: %s", exc)
+        logger.error("[load] faiss not available — exiting: %s", exc)
         raise
 
+    logger.info("[load] validating paths: FAISS_INDEX=%s TITLES_FILE=%s", FAISS_INDEX, TITLES_FILE)
     _validate_path(FAISS_INDEX)
     _validate_path(TITLES_FILE)
 
-    logger.info("Loading titles …")
+    logger.info("[load] loading titles from %s …", TITLES_FILE)
     t0 = time.time()
     with open(TITLES_FILE, "r", encoding="utf-8") as f:
         state["titles"] = [line for line in f if line.strip()]
-    _build_state.titles_loaded = len(state["titles"])
-    logger.info("  %d titles loaded in %.1fs", _build_state.titles_loaded, time.time() - t0)
+    n_titles = len(state["titles"])
+    _build_state.titles_loaded = n_titles
+    logger.info("[load]   %d titles loaded in %.1fs", n_titles, time.time() - t0)
 
-    logger.info("Loading FAISS index …")
+    logger.info(
+        "[load] loading FAISS index from %s (path exists=%s) …",
+        FAISS_INDEX,
+        os.path.exists(FAISS_INDEX),
+    )
     t0 = time.time()
     state["index"] = _load_faiss_index(FAISS_INDEX)
     state["index"].nprobe = DEFAULT_NPROBE
-    logger.info("  Index loaded in %.1fs", time.time() - t0)
+    logger.info("[load]   index loaded in %.1fs", time.time() - t0)
 
-    logger.info("Loading model '%s' …", MODEL_NAME)
+    logger.info("[load] loading model '%s' …", MODEL_NAME)
     t0 = time.time()
     state["model"] = SentenceTransformer(MODEL_NAME)
-    logger.info("  Model loaded in %.1fs", time.time() - t0)
+    logger.info("[load]   model loaded in %.1fs", time.time() - t0)
 
     _build_state.status = "ready"
     _build_state.progress = 1.0
+    logger.info("[load] === status=ready progress=1.0 ===")
 
 
 def _verify_faiss_installed() -> None:
